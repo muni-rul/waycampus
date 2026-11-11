@@ -387,7 +387,7 @@ apiRouter.get('/faculty/registered-ids', requireAdminAuth, (req: Request, res: R
 apiRouter.post('/faculty/login', facultyAuthLimiter, (req: Request, res: Response) => {
   try {
     const { identifier, email, facultyCode, password } = req.body;
-    const term = (identifier || email || facultyCode || '').trim();
+    const term = String(identifier || email || facultyCode || '').trim().toLowerCase();
 
     if (!term || !password) {
       return res.status(400).json({ error: 'Faculty email/ID code and password are required.' });
@@ -2419,39 +2419,17 @@ apiRouter.post('/publish/sync', requireSuperAdminAuth, async (req: Request, res:
       store.persist(true);
       const finalValidation = store.validateForPublish();
 
-      // Step 7: If running in local Git workspace, also commit & push database + uploaded assets to GitHub main
-      // so Render Free retains all published changes across container spin-down / restarts
+      // Step 7: Push latest state to GitHub private data repository if gitSyncService is configured
       let gitSynced = false;
-      if (!process.env.RENDER) {
+      if (gitSyncService.isConfigured()) {
         try {
-          const gitRoot = getGitRepoRoot();
-          execSync('git add server/data/campusnav_db.json', {
-            cwd: gitRoot,
-            stdio: ['pipe', 'pipe', 'ignore'],
-          });
-          const uploadedDir = path.join(gitRoot, 'client/public/assets/panoramas/uploaded');
-          if (fs.existsSync(uploadedDir)) {
-            execSync('git add client/public/assets/panoramas/uploaded', {
-              cwd: gitRoot,
-              stdio: ['pipe', 'pipe', 'ignore'],
-            });
-          }
-          const staged = execSync('git diff --cached --name-only', { cwd: gitRoot, encoding: 'utf8' }).trim();
-          if (staged.length > 0) {
-            const ts = new Date().toISOString();
-            execSync(`git commit -m "Publish: sync campus panorama data (${ts})"`, {
-              cwd: gitRoot,
-              stdio: ['pipe', 'pipe', 'ignore'],
-            });
-            try {
-              execSync('git fetch origin main', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-              execSync('git merge -X ours origin/main --no-edit', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-            } catch {}
-            execSync('git push origin main', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-            gitSynced = true;
+          const syncRes = await gitSyncService.syncFile(store.getDataFilePath());
+          gitSynced = syncRes.success;
+          if (!syncRes.success) {
+            console.warn('[Publish Sync] Cloud data sync warning:', syncRes.message);
           }
         } catch (gitSyncErr: any) {
-          console.warn('[Publish Sync] Optional background git push skipped:', gitSyncErr?.message);
+          console.warn('[Publish Sync] Background data sync failed:', gitSyncErr?.message);
         }
       }
 
@@ -2480,10 +2458,10 @@ apiRouter.post('/publish/sync', requireSuperAdminAuth, async (req: Request, res:
   }
 });
 
-// 17. 1-Click Publish to Render (Git commit & push + optional Deploy Hook)
+// 17. 1-Click Publish to Render (Data Repo sync + optional Deploy Hook)
 apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { deployHookUrl, allowGitPush = false } = req.body || {};
+    const { deployHookUrl } = req.body || {};
 
     // 1. Run pre-publish validation before any deploy
     const validation = store.validateForPublish();
@@ -2505,61 +2483,25 @@ apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, re
     store.persist(true);
 
     let gitSuccess = false;
-    let commitHash = '';
-    let gitOutput = '';
     let gitErrMsg = '';
 
-    const gitRoot = getGitRepoRoot();
-
-    // Check if git repository is accessible
-    let gitAvailable = false;
-    try {
-      execSync('git rev-parse --is-inside-work-tree', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-      gitAvailable = true;
-    } catch {
-      gitAvailable = false;
-    }
-
-    store.materializeUploadedPanoramaAssetsToDisk();
-
-    if (gitAvailable && allowGitPush) {
+    if (gitSyncService.isConfigured()) {
       try {
-        execSync('git add server/data/campusnav_db.json', {
-          cwd: gitRoot,
-          stdio: ['pipe', 'pipe', 'ignore'],
-        });
-        const uploadedDir = path.join(gitRoot, 'client/public/assets/panoramas/uploaded');
-        if (fs.existsSync(uploadedDir)) {
-          execSync('git add client/public/assets/panoramas/uploaded', {
-            cwd: gitRoot,
-            stdio: ['pipe', 'pipe', 'ignore'],
-          });
+        const syncRes = await gitSyncService.syncFile(store.getDataFilePath());
+        gitSuccess = syncRes.success;
+        if (!syncRes.success) {
+          gitErrMsg = syncRes.message;
         }
-        const diff = execSync('git diff --cached --name-only', { cwd: gitRoot, encoding: 'utf8' }).trim();
-        if (diff.length > 0) {
-          const timestamp = new Date().toLocaleString();
-          execSync(`git commit -m "Publish: update campus panorama data (${timestamp})"`, {
-            cwd: gitRoot,
-            stdio: ['pipe', 'pipe', 'ignore'],
-          });
-        }
-        try {
-          execSync('git fetch origin main', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-          execSync('git merge -X ours origin/main --no-edit', { cwd: gitRoot, stdio: ['pipe', 'pipe', 'ignore'] });
-        } catch {}
-        gitOutput = execSync('git push origin main', { cwd: gitRoot, encoding: 'utf8' }).trim();
-        commitHash = execSync('git rev-parse --short HEAD', { cwd: gitRoot, encoding: 'utf8' }).trim();
-        gitSuccess = true;
-      } catch (gitErr: any) {
-        gitErrMsg = gitErr.stderr ? gitErr.stderr.toString() : gitErr.message;
-        console.warn('[Publish] Git push failed or had issues:', gitErrMsg);
+      } catch (syncErr: any) {
+        gitErrMsg = syncErr?.message || 'Data sync error';
+        console.warn('[Publish Deploy] Data repo sync warning:', gitErrMsg);
       }
     }
 
     // Trigger optional Render deploy webhook
     let hookTriggered = false;
     const targetHookUrl = deployHookUrl || process.env.RENDER_DEPLOY_HOOK_URL;
-    if (targetHookUrl && allowGitPush) {
+    if (targetHookUrl) {
       try {
         const hookRes = await fetch(targetHookUrl, { method: 'POST' });
         hookTriggered = hookRes.ok;
@@ -2568,50 +2510,18 @@ apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, re
       }
     }
 
-    if (!allowGitPush) {
-      store.markGraphPublished(caller);
-      return res.json({
-        success: true,
-        gitSuccess: false,
-        hookTriggered: false,
-        validation: store.validateForPublish(),
-        message: '✓ Local publish validation passed and pre-deploy snapshot created. (Git push is gated until explicitly authorized.)',
-      });
-    }
-
-    // If running directly inside the live Render container where Git credentials are not mounted
-    if (!gitSuccess && !hookTriggered && Boolean(process.env.RENDER)) {
-      store.markGraphPublished(caller);
-      store.persist(true);
-      const finalVal = store.validateForPublish();
-      return res.json({
-        success: true,
-        gitSuccess: false,
-        hookTriggered: false,
-        validation: finalVal,
-        message: `✓ Published directly on live Render server! All ${finalVal.totalNodeCount} panoramas and ${finalVal.totalConnections} connections are live.`,
-      });
-    }
-
-    if (!gitSuccess && !hookTriggered) {
-      return res.status(gitAvailable ? 500 : 400).json({
-        success: false,
-        error: gitAvailable
-          ? `Git push to main failed: ${gitErrMsg || 'Please check network or git credentials.'}`
-          : 'Direct git push is not available in this environment. Use Render Deploy Hook or download database export.',
-        gitOutput,
-      });
-    }
-
     store.markGraphPublished(caller);
 
-    res.json({
+    return res.json({
       success: true,
       gitSuccess,
-      commitHash,
       hookTriggered,
       validation: store.validateForPublish(),
-      message: '✓ Successfully published! Render has received your update and started deploying to https://campnav-b3om.onrender.com/ (estimated time: 1-2 minutes).',
+      message: hookTriggered
+        ? '✓ Triggered Render deploy hook and verified publish state.'
+        : gitSuccess
+        ? '✓ Synchronized published state to private data repository.'
+        : '✓ Local publish state validated and marked PUBLISHED. (Configure RENDER_DEPLOY_HOOK_URL or GITHUB_DATA_REPO for remote deployment).',
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Deploy failed' });

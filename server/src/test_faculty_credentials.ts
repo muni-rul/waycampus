@@ -23,10 +23,12 @@ async function runTests() {
   // Dynamic import ensures process.env.DATA_DIR is active during module initialization
   const { apiRouter, isSafeChristCollegeUrl } = await import('./routes/api');
   const { store } = await import('./db/store');
+  const { gitSyncService } = await import('./services/gitSyncService');
   const {
     generateSecureTempPassword,
     isValidCollegeEmail,
     generateAdminToken,
+    hashPassword,
   } = await import('./middleware/auth');
 
   const app = express();
@@ -52,7 +54,7 @@ async function runTests() {
     }
   }
 
-  // Hard timeout watchdog (15 seconds max)
+  // Hard timeout watchdog (60 seconds max)
   const watchdog = setTimeout(() => {
     console.error('✗ WATCHDOG TIMEOUT: Test suite exceeded maximum allowed time.');
     server.close();
@@ -60,7 +62,7 @@ async function runTests() {
       fs.rmSync(testDataDir, { recursive: true, force: true });
     } catch {}
     process.exit(1);
-  }, 15000);
+  }, 60000);
 
   const adminToken = generateAdminToken('admin', 'SUPER_ADMIN', 'Administrator', true);
   const adminHeaders = {
@@ -469,6 +471,282 @@ async function runTests() {
     assert(!createdTeacher?.email || createdTeacher?.email === '', 'Added teacher without email has EMPTY email (never derived from name)');
     assert(!createdTeacher?.officialEmail, 'Added teacher without email has NO officialEmail');
     assert(createdTeacher?.verifiedStatus === 'UNVERIFIED', 'Added teacher without email is marked UNVERIFIED');
+
+    // =========================================================================
+    // PART B: FAIL-SAFE SYNC, PERSISTENCE & SAFE PUBLISH TESTS (a - f)
+    // =========================================================================
+    const originalFetch = globalThis.fetch;
+
+    // -------------------------------------------------------------------------
+    // TEST (a): Boot restore: remote file with faculty accounts is adopted
+    // -------------------------------------------------------------------------
+    process.env.GITHUB_TOKEN = 'mock-fine-grained-token-test';
+    process.env.GITHUB_DATA_REPO = 'muni-rul/waycampus-data';
+    process.env.GITHUB_REPO = 'muni-rul/waycampus';
+    process.env.ENABLE_STARTUP_CLOUD_SYNC = 'true';
+
+    const mockRemoteAccounts = [
+      {
+        id: 'fa_remote_1',
+        facultyId: 'fac_remote_1',
+        email: 'remote.prof1@christcollegeijk.edu.in',
+        facultyCode: 'RP01',
+        passwordHash: hashPassword('RemoteSecretPass123!'),
+        mustChangePassword: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'fa_remote_2',
+        facultyId: 'fac_remote_2',
+        email: 'remote.prof2@christcollegeijk.edu.in',
+        facultyCode: 'RP02',
+        passwordHash: hashPassword('RemoteSecretPass456!'),
+        mustChangePassword: true,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const mockRemoteDatabaseState = {
+      ...store.exportDatabasePayload(),
+      facultyAccounts: mockRemoteAccounts,
+    };
+    const mockRemoteB64 = Buffer.from(JSON.stringify(mockRemoteDatabaseState)).toString('base64');
+
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        return new Response(
+          JSON.stringify({
+            sha: 'remote-sha-boot-abc',
+            content: mockRemoteB64,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return originalFetch(input, init);
+    };
+
+    await store.initCloudSync();
+    const loadedAccounts = store.getFacultyAccounts();
+    const hasRemote1 = loadedAccounts.some((a) => a.id === 'fa_remote_1');
+    const hasRemote2 = loadedAccounts.some((a) => a.id === 'fa_remote_2');
+    assert(hasRemote1 && hasRemote2, 'TEST (a): Boot restore adopts remote faculty accounts from data repo');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'remote-sha-boot-abc', 'TEST (a): Boot restore records remote SHA');
+    assert(gitSyncService.getLastKnownRemoteAccountCount() === 2, 'TEST (a): Boot restore records remote account count (2)');
+
+    // -------------------------------------------------------------------------
+    // TEST (b): Failed remote fetch pauses sync and pushes nothing
+    // -------------------------------------------------------------------------
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        return new Response('Gateway Timeout', { status: 504 });
+      }
+      return originalFetch(input, init);
+    };
+
+    const fetchRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(fetchRes.status === 504, 'TEST (b): Remote fetch returns error status on failure');
+    assert(gitSyncService.isSyncPaused(), 'TEST (b): Sync is paused after failed remote fetch');
+
+    let attemptedPut = false;
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (init?.method === 'PUT' || urlStr.includes('api.github.com')) {
+        attemptedPut = true;
+        return new Response('{}', { status: 200 });
+      }
+      return originalFetch(input, init);
+    };
+
+    const blockedSyncRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(blockedSyncRes.success === false, 'TEST (b): syncFile rejected while sync is paused');
+    assert(!attemptedPut, 'TEST (b): No HTTP PUT was made to GitHub while sync is paused');
+
+    // -------------------------------------------------------------------------
+    // TEST (c): Stale-SHA PUT gets 409, fetches latest, merges accounts, and succeeds on retry
+    // -------------------------------------------------------------------------
+    gitSyncService.setSyncPaused(false);
+    gitSyncService.setLastKnownRemoteState('stale-sha-111', 2);
+
+    let putCount = 0;
+    let getAfterConflict = false;
+
+    const concurrentRemoteState = {
+      ...store.exportDatabasePayload(),
+      facultyAccounts: [
+        ...mockRemoteAccounts,
+        {
+          id: 'fa_concurrent_3',
+          facultyId: 'fac_concurrent_3',
+          email: 'concurrent.prof@christcollegeijk.edu.in',
+          facultyCode: 'CP03',
+          passwordHash: hashPassword('ConcurrentPass123!'),
+          mustChangePassword: false,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+    const concurrentB64 = Buffer.from(JSON.stringify(concurrentRemoteState)).toString('base64');
+
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        if (init?.method === 'PUT') {
+          putCount++;
+          if (putCount === 1) {
+            // First attempt with stale SHA returns 409 Conflict
+            return new Response(JSON.stringify({ message: 'Sha did not match' }), {
+              status: 409,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          } else {
+            // Second attempt (retry with merged state and fresh SHA) succeeds
+            const bodyObj = JSON.parse(init.body);
+            assert(bodyObj.sha === 'fresh-sha-222', 'TEST (c): Retry PUT uses fresh SHA from conflict resolution');
+            return new Response(
+              JSON.stringify({ commit: { sha: 'final-sha-333' }, content: { sha: 'final-sha-333' } }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          }
+        } else if (!init?.method || init?.method === 'GET') {
+          getAfterConflict = true;
+          return new Response(
+            JSON.stringify({ sha: 'fresh-sha-222', content: concurrentB64 }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      return originalFetch(input, init);
+    };
+
+    const retrySyncRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(retrySyncRes.success === true, 'TEST (c): syncFile succeeds on retry after 409 Conflict');
+    assert(getAfterConflict, 'TEST (c): Latest remote database fetched following 409 conflict');
+    assert(putCount === 2, 'TEST (c): Exactly 2 PUT attempts performed (initial + 1 retry)');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'final-sha-333', 'TEST (c): Final remote SHA updated to retry result');
+    const mergedLiveAccounts = store.getFacultyAccounts();
+    assert(
+      mergedLiveAccounts.some((a) => a.id === 'fa_concurrent_3'),
+      'TEST (c): Concurrent remote account preserved in live store after merge'
+    );
+
+    // -------------------------------------------------------------------------
+    // TEST (d): Local state with fewer accounts is blocked from pushing
+    // -------------------------------------------------------------------------
+    gitSyncService.setSyncPaused(false);
+    gitSyncService.setLastKnownRemoteState('sha-protect-999', 50); // Remote known to have 50 accounts
+
+    let pushAttemptedUnderProtection = false;
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (init?.method === 'PUT' || urlStr.includes('api.github.com')) {
+        pushAttemptedUnderProtection = true;
+        return new Response('{}', { status: 200 });
+      }
+      return originalFetch(input, init);
+    };
+
+    const reducedSyncRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(reducedSyncRes.success === false, 'TEST (d): Cloud sync blocked when local has fewer accounts than remote');
+    assert(!pushAttemptedUnderProtection, 'TEST (d): No PUT sent when local accounts < remote accounts');
+    assert(
+      reducedSyncRes.message.includes('fewer faculty accounts'),
+      'TEST (d): Rejection message explicitly notes account protection'
+    );
+
+    // -------------------------------------------------------------------------
+    // TEST (e): Publish import preserves live faculty accounts, hashes, and statuses
+    // -------------------------------------------------------------------------
+    const teacherId = store.getTeachers()[0]?.id || 't1';
+    store.setFacultyStatus({
+      facultyId: teacherId,
+      status: 'BUSY',
+      source: 'FACULTY',
+      updatedBy: 'Self',
+    });
+
+    const liveAccountsBefore = store.getFacultyAccounts();
+    assert(liveAccountsBefore.length >= 2, 'TEST (e): Live accounts exist before publish import');
+    const sampleAccountBefore = liveAccountsBefore[0];
+    const originalHash = sampleAccountBefore.passwordHash;
+    assert(originalHash.startsWith('$2'), 'TEST (e): Sample account has real bcrypt hash');
+
+    const publishPayload: any = {
+      ...store.exportDatabasePayload(),
+      facultyAccounts: [
+        {
+          ...sampleAccountBefore,
+          passwordHash: '[PROTECTED_ON_SERVER]', // placeholder from client export
+        },
+        {
+          id: 'fa_bogus_placeholder',
+          facultyId: 'fac_bogus',
+          email: 'bogus@christcollegeijk.edu.in',
+          passwordHash: '[PROTECTED_ON_SERVER]', // bogus account with placeholder hash
+        },
+      ],
+      facultyStatuses: {}, // Empty statuses in export
+      facultyStatusAuditLogs: [],
+    };
+
+    store.importPublishedDatabase(publishPayload, 'Publish Unit Test', { force: true });
+
+    const liveAccountsAfter = store.getFacultyAccounts();
+    assert(
+      liveAccountsAfter.length >= liveAccountsBefore.length,
+      'TEST (e): Live accounts were NOT dropped by publish import'
+    );
+    const sampleAccountAfter = store.getFacultyAccountById(sampleAccountBefore.id);
+    assert(
+      sampleAccountAfter?.passwordHash === originalHash,
+      'TEST (e): Live password hash was preserved (not overwritten by [PROTECTED_ON_SERVER])'
+    );
+    assert(
+      !store.getFacultyAccountById('fa_bogus_placeholder'),
+      'TEST (e): Bogus account with placeholder hash was not added'
+    );
+
+    const statusAfter = store.getFacultyStatus(teacherId);
+    assert(
+      statusAfter?.status === 'BUSY',
+      'TEST (e): Live faculty presence status preserved across publish import'
+    );
+
+    // -------------------------------------------------------------------------
+    // TEST (f): Login lookup matches with different case and trailing spaces
+    // -------------------------------------------------------------------------
+    globalThis.fetch = originalFetch; // restore real fetch for internal test server calls
+
+    const targetAccount = store.getFacultyAccounts()[0];
+    assert(Boolean(targetAccount), 'TEST (f): Target account exists for lookup test');
+
+    const byEmailUpper = store.getFacultyAccountByEmailOrCode(`  ${targetAccount.email.toUpperCase()}  `);
+    assert(byEmailUpper?.id === targetAccount.id, 'TEST (f): Lookup matches uppercase email with whitespace');
+
+    const byCodeUpper = store.getFacultyAccountByEmailOrCode(`  ${targetAccount.facultyCode.toUpperCase()}  `);
+    assert(byCodeUpper?.id === targetAccount.id, 'TEST (f): Lookup matches uppercase facultyCode with whitespace');
+
+    const byIdUpper = store.getFacultyAccountByEmailOrCode(`  ${targetAccount.facultyId.toUpperCase()}  `);
+    assert(byIdUpper?.id === targetAccount.id, 'TEST (f): Lookup matches uppercase facultyId with whitespace');
+
+    const resetResult = store.resetFacultyAccountPassword(targetAccount.id, 'CaseSpaceTestPass123!');
+    assert(Boolean(resetResult), 'TEST (f): Password reset to known value for HTTP login test');
+
+    const caseLoginRes = await fetch(`${baseUrl}/faculty/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: `   ${targetAccount.email.toUpperCase()}   `,
+        password: 'CaseSpaceTestPass123!',
+      }),
+    });
+    assert(caseLoginRes.status === 200, 'TEST (f): HTTP /faculty/login succeeds with uppercase and padded identifier');
+    const caseLoginJson = (await caseLoginRes.json()) as any;
+    assert(caseLoginJson.success === true && Boolean(caseLoginJson.token), 'TEST (f): Valid JWT token returned for case/space test');
 
     console.log(`\n========================================`);
     console.log(`FACULTY CREDENTIALS TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);

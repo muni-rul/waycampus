@@ -255,6 +255,11 @@ class DataStore {
     if (!ov.publishStatus) {
       ov.publishStatus = ov.contentHash === ov.lastPublishedHash ? 'PUBLISHED' : 'DRAFT';
     }
+    gitSyncService.setMergeHandler((remoteJson) => this.handleCloudMergeConflict(remoteJson));
+  }
+
+  public getDataFilePath(): string {
+    return this.dataFilePath;
   }
 
   public getStateVersion(): number {
@@ -292,6 +297,42 @@ class DataStore {
   private _placeholderEndConstructor(): void {
   }
 
+  public handleCloudMergeConflict(remoteJson: string): void {
+    try {
+      const remoteState: DatabaseState = JSON.parse(remoteJson);
+      if (!remoteState || !Array.isArray(remoteState.buildings)) return;
+
+      const localAccounts = this.state.facultyAccounts || [];
+      const remoteAccounts = Array.isArray(remoteState.facultyAccounts) ? remoteState.facultyAccounts : [];
+
+      const mergedAccounts = [...remoteAccounts];
+      for (const loc of localAccounts) {
+        const exists = remoteAccounts.some(
+          (r) =>
+            r.id === loc.id ||
+            (r.facultyId && loc.facultyId && r.facultyId.toLowerCase() === loc.facultyId.toLowerCase()) ||
+            (r.email && loc.email && r.email.toLowerCase() === loc.email.toLowerCase())
+        );
+        if (!exists) {
+          mergedAccounts.push(loc);
+        }
+      }
+
+      this.state.facultyAccounts = mergedAccounts;
+      if (remoteState.facultyStatuses) {
+        this.state.facultyStatuses = {
+          ...this.state.facultyStatuses,
+          ...remoteState.facultyStatuses,
+        };
+      }
+      this.saveStateToDisk(this.state);
+      this.invalidateCache();
+      console.log(`[CloudSync] Merged remote state on 409 conflict: ${mergedAccounts.length} faculty accounts.`);
+    } catch (err: any) {
+      console.warn('[CloudSync] Failed to merge remote state on conflict:', err?.message);
+    }
+  }
+
   public async initCloudSync(): Promise<void> {
     if (!gitSyncService.isConfigured()) {
       console.warn(
@@ -305,9 +346,9 @@ class DataStore {
     }
     try {
       console.log('[CampusNav Store] Checking GitHub for latest cloud database backup...');
-      const remoteContent = await gitSyncService.fetchLatestRemoteDatabase();
-      if (remoteContent) {
-        const parsed = JSON.parse(remoteContent);
+      const remoteRes = await gitSyncService.fetchLatestRemoteDatabase();
+      if (remoteRes && remoteRes.content) {
+        const parsed = JSON.parse(remoteRes.content);
         if (parsed && Array.isArray(parsed.buildings) && parsed.buildings.length > 0) {
           this.state = parsed;
           this.saveStateToDisk(this.state);
@@ -622,7 +663,7 @@ class DataStore {
       .catch(() => {});
   }
 
-  public persist(immediate: boolean = false): void {
+  public persist(immediate: boolean = false, options?: { allowAccountRemoval?: boolean }): void {
     if (immediate) {
       if (this.persistTimer) {
         clearTimeout(this.persistTimer);
@@ -631,7 +672,7 @@ class DataStore {
       this.saveStateToDisk(this.state);
       this.invalidateCache();
       if (Boolean(process.env.RENDER) || process.env.AUTO_CLOUD_SYNC_ON_SAVE === 'true') {
-        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 500);
+        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 500, options);
       }
       return;
     }
@@ -642,7 +683,7 @@ class DataStore {
       this.persistTimer = null;
       this.saveStateToDiskAsync(this.state);
       if (Boolean(process.env.RENDER) || process.env.AUTO_CLOUD_SYNC_ON_SAVE === 'true') {
-        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 5000);
+        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 5000, options);
       }
     }, 10000);
   }
@@ -2883,28 +2924,48 @@ class DataStore {
     const preservedSnapshots = this.state.snapshots || [];
     const preservedAdminUsers = this.state.adminUsers || [];
     const preservedFacultyAccounts = this.state.facultyAccounts || [];
+    const preservedFacultyStatuses = this.state.facultyStatuses || {};
+    const preservedFacultyStatusAuditLogs = this.state.facultyStatusAuditLogs || [];
+    const preservedAdminAuditActions = this.state.adminAuditActions || [];
 
-    // Safely preserve existing server faculty accounts
-    let mergedAccounts = preservedFacultyAccounts;
-    if (Array.isArray(incomingState.facultyAccounts)) {
-      mergedAccounts = incomingState.facultyAccounts.map((incAcc) => {
-        const existing = preservedFacultyAccounts.find(
-          (p) => p.id === incAcc.id || p.facultyId === incAcc.facultyId
-        );
-        if (incAcc.passwordHash === '[PROTECTED_ON_SERVER]' && existing) {
-          return { ...incAcc, passwordHash: existing.passwordHash };
-        }
-        return existing || incAcc;
-      });
+    // Safely preserve live faculty accounts and hashes.
+    // Publish import must never drop live accounts, and never overwrite real hashes with placeholders or blanks.
+    const incomingAccounts = Array.isArray(incomingState.facultyAccounts) ? incomingState.facultyAccounts : [];
+    const mergedAccounts: FacultyAccount[] = [...preservedFacultyAccounts];
+
+    for (const inc of incomingAccounts) {
+      const matchIndex = mergedAccounts.findIndex(
+        (p) =>
+          p.id === inc.id ||
+          (p.facultyId && inc.facultyId && p.facultyId.toLowerCase() === inc.facultyId.toLowerCase()) ||
+          (p.email && inc.email && p.email.toLowerCase() === inc.email.toLowerCase())
+      );
+      const isPlaceholderOrEmpty =
+        !inc.passwordHash ||
+        inc.passwordHash === '[PROTECTED_ON_SERVER]' ||
+        inc.passwordHash.trim() === '';
+
+      if (matchIndex >= 0) {
+        const existing = mergedAccounts[matchIndex];
+        mergedAccounts[matchIndex] = {
+          ...inc,
+          passwordHash: isPlaceholderOrEmpty ? existing.passwordHash : inc.passwordHash,
+        };
+      } else if (!isPlaceholderOrEmpty) {
+        mergedAccounts.push(inc);
+      }
     }
 
     this.state = {
       ...incomingState,
       facultyAccounts: mergedAccounts,
+      facultyStatuses: preservedFacultyStatuses,
+      facultyStatusAuditLogs: preservedFacultyStatusAuditLogs,
+      adminAuditActions: preservedAdminAuditActions,
       adminUsers:
         Array.isArray(incomingState.adminUsers) && incomingState.adminUsers.length > 0
           ? incomingState.adminUsers.map((u) => {
-              if (u.passwordHash === '[PROTECTED_ON_SERVER]') {
+              if (u.passwordHash === '[PROTECTED_ON_SERVER]' || !u.passwordHash) {
                 const existing = preservedAdminUsers.find(
                   (p) => p.id === u.id || p.username === u.username
                 );
@@ -4153,12 +4214,13 @@ class DataStore {
   }
 
   public getFacultyAccountByEmailOrCode(identifier: string): FacultyAccount | undefined {
-    const term = identifier.trim().toLowerCase();
+    const term = (identifier || '').trim().toLowerCase();
+    if (!term) return undefined;
     return (this.state.facultyAccounts || []).find(
       (a) =>
-        a.email.toLowerCase() === term ||
-        a.facultyCode.toLowerCase() === term ||
-        a.facultyId.toLowerCase() === term
+        (a.email || '').trim().toLowerCase() === term ||
+        (a.facultyCode || '').trim().toLowerCase() === term ||
+        (a.facultyId || '').trim().toLowerCase() === term
     );
   }
 

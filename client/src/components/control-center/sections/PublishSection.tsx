@@ -101,7 +101,7 @@ export const PublishSection: React.FC = () => {
   };
 
   const handleDeploy = async () => {
-    if (!confirm('Commit and deploy latest changes to the live production Git/Render pipeline?')) return;
+    if (!confirm('Trigger Render redeploy via build hook? (Code changes are pulled from the GitHub repository, and database state is restored from the private data repository).')) return;
 
     setIsDeploying(true);
     setDeployResult(null);
@@ -401,7 +401,7 @@ export const PublishSection: React.FC = () => {
           >
             <GitBranch className="w-4 h-4 text-slate-500" />
             <span>
-              {isDeploying ? 'Pushing Git Commit...' : 'Commit & Trigger Git/Render Build Pipeline'}
+              {isDeploying ? 'Triggering Deploy...' : 'Trigger Render Redeploy (Deploy Hook)'}
             </span>
           </button>
         </div>

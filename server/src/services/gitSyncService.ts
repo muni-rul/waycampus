@@ -24,6 +24,13 @@ class GitSyncService {
   private lastSyncMessage: string | null = null;
   private lastCommitSha: string | null = null;
 
+  // Fail-Safe Sync Guards
+  private lastKnownRemoteSha: string | null = null;
+  private lastKnownRemoteAccountCount: number = 0;
+  private syncPaused: boolean = false;
+  private syncPauseReason: string | null = null;
+  private onMergeConflict: ((remoteJson: string) => Promise<void> | void) | null = null;
+
   public getToken(): string | null {
     return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null;
   }
@@ -64,10 +71,37 @@ class GitSyncService {
     return true;
   }
 
+  public setMergeHandler(handler: (remoteJson: string) => Promise<void> | void): void {
+    this.onMergeConflict = handler;
+  }
+
+  public setLastKnownRemoteState(sha: string | null, accountCount: number): void {
+    this.lastKnownRemoteSha = sha;
+    this.lastKnownRemoteAccountCount = accountCount;
+  }
+
+  public getLastKnownRemoteAccountCount(): number {
+    return this.lastKnownRemoteAccountCount;
+  }
+
+  public getLastKnownRemoteSha(): string | null {
+    return this.lastKnownRemoteSha;
+  }
+
+  public isSyncPaused(): boolean {
+    return this.syncPaused;
+  }
+
+  public setSyncPaused(paused: boolean, reason?: string): void {
+    this.syncPaused = paused;
+    this.syncPauseReason = reason || null;
+  }
+
   public async syncFile(
     localFilePath: string,
     remotePath?: string,
-    commitMessage: string = 'chore(db): auto-sync campus database [skip ci] [skip deploy]'
+    commitMessage: string = 'chore(db): auto-sync campus database [skip ci] [skip deploy]',
+    options?: { allowAccountRemoval?: boolean }
   ): Promise<GitSyncResult> {
     if (!this.isConfigured()) {
       console.warn(
@@ -79,6 +113,15 @@ class GitSyncService {
         success: false,
         message: 'GitHub Data Sync not configured or GITHUB_DATA_REPO equals code repository. Using local disk persistence.',
       };
+    }
+
+    // Guard 1: If initial remote fetch failed on startup, pause all outgoing syncs to protect remote data
+    if (this.syncPaused) {
+      const msg = `Cloud sync paused to protect remote data: initial remote fetch failed (${this.syncPauseReason}). Waiting for successful remote restore.`;
+      console.warn(`[CloudSync Guard] ${msg}`);
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = msg;
+      return { success: false, message: msg };
     }
 
     const token = this.getToken()!;
@@ -93,6 +136,27 @@ class GitSyncService {
         success: false,
         message: `Local file ${localFilePath} does not exist to sync.`,
       };
+    }
+
+    // Guard 2: Never push a state that reduces faculty accounts compared with last known remote state
+    let localAccountCount = 0;
+    try {
+      const raw = fs.readFileSync(localFilePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      localAccountCount = Array.isArray(parsed.facultyAccounts) ? parsed.facultyAccounts.length : 0;
+    } catch {
+      return {
+        success: false,
+        message: 'Could not parse local database file to verify account integrity before push.',
+      };
+    }
+
+    if (!options?.allowAccountRemoval && localAccountCount < this.lastKnownRemoteAccountCount) {
+      const msg = `Refusing cloud sync: local state has fewer faculty accounts (${localAccountCount}) than last known remote state (${this.lastKnownRemoteAccountCount}). Account protection engaged.`;
+      console.warn(`[CloudSync Guard] ${msg}`);
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = msg;
+      return { success: false, message: msg };
     }
 
     if (this.isSyncing) {
@@ -114,29 +178,17 @@ class GitSyncService {
         'User-Agent': 'CampusNav-Server-Sync/1.0',
       };
 
-      // 1. Get existing file SHA if present
-      let existingSha: string | undefined;
-      try {
-        const getRes = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(10000) });
-        if (getRes.ok) {
-          const getData = (await getRes.json()) as any;
-          existingSha = getData.sha;
-        }
-      } catch (getErr: any) {
-        console.warn('[GitSync] Could not inspect existing file SHA:', getErr.message);
-      }
-
-      // 2. Commit file via PUT
+      // Guard 3: Use the verified lastKnownRemoteSha for optimistic concurrency (stale writers get HTTP 409)
       const putBody: any = {
         message: commitMessage,
         content: base64Content,
         branch,
       };
-      if (existingSha) {
-        putBody.sha = existingSha;
+      if (this.lastKnownRemoteSha) {
+        putBody.sha = this.lastKnownRemoteSha;
       }
 
-      const putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${targetPath}`, {
+      let putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${targetPath}`, {
         method: 'PUT',
         headers: {
           ...headers,
@@ -145,6 +197,33 @@ class GitSyncService {
         body: JSON.stringify(putBody),
         signal: AbortSignal.timeout(15000),
       });
+
+      // Handle 409 Conflict: Remote was updated by another writer since our last fetch
+      if (putRes.status === 409) {
+        console.warn('[CloudSync] HTTP 409 Conflict: remote repository has newer changes. Merging remote state and retrying once...');
+        const remoteRes = await this.fetchLatestRemoteDatabase(targetPath);
+        if (remoteRes.content) {
+          if (this.onMergeConflict) {
+            await this.onMergeConflict(remoteRes.content);
+          }
+          // Re-read merged file and re-encode
+          const mergedContent = fs.readFileSync(localFilePath);
+          putBody.content = mergedContent.toString('base64');
+          if (this.lastKnownRemoteSha) {
+            putBody.sha = this.lastKnownRemoteSha;
+          }
+
+          putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${targetPath}`, {
+            method: 'PUT',
+            headers: {
+              ...headers,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(putBody),
+            signal: AbortSignal.timeout(15000),
+          });
+        }
+      }
 
       if (!putRes.ok) {
         const errJson = (await putRes.json().catch(() => ({}))) as any;
@@ -160,10 +239,12 @@ class GitSyncService {
       }
 
       const resData = (await putRes.json()) as any;
-      const commitSha = resData?.commit?.sha || '';
+      const commitSha = resData?.commit?.sha || resData?.content?.sha || '';
       const htmlUrl = resData?.commit?.html_url || '';
 
       console.log(`[GitSync] Successfully synced database to external data repository (${repo} @ ${branch}): ${commitSha.slice(0, 7)}`);
+      this.lastKnownRemoteSha = commitSha;
+      this.lastKnownRemoteAccountCount = localAccountCount;
       this.lastSyncTime = new Date().toISOString();
       this.lastSyncSuccess = true;
       this.lastSyncMessage = `Successfully synced database to data repository ${repo} (${branch})`;
@@ -188,7 +269,11 @@ class GitSyncService {
     }
   }
 
-  public scheduleDebouncedSync(localFilePath: string, delayMs: number = 5000): void {
+  public scheduleDebouncedSync(
+    localFilePath: string,
+    delayMs: number = 5000,
+    options?: { allowAccountRemoval?: boolean }
+  ): void {
     if (!this.isConfigured()) return;
 
     if (this.syncTimer) {
@@ -197,7 +282,7 @@ class GitSyncService {
 
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      this.syncFile(localFilePath).catch((e) => {
+      this.syncFile(localFilePath, undefined, undefined, options).catch((e) => {
         console.warn('[GitSync] Debounced sync background error:', e?.message);
       });
     }, delayMs);
@@ -205,9 +290,9 @@ class GitSyncService {
 
   public async fetchLatestRemoteDatabase(
     remotePath?: string
-  ): Promise<string | null> {
+  ): Promise<{ content: string | null; status: number }> {
     if (!this.isConfigured()) {
-      return null;
+      return { content: null, status: 0 };
     }
 
     const token = this.getToken()!;
@@ -224,31 +309,66 @@ class GitSyncService {
       };
 
       const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(10000) });
+
+      if (res.status === 404) {
+        console.log('[CloudSync] No remote data (404): starting from seed');
+        this.lastKnownRemoteSha = null;
+        this.lastKnownRemoteAccountCount = 0;
+        this.syncPaused = false;
+        this.syncPauseReason = null;
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = true;
+        this.lastSyncMessage = 'No remote data file found on GitHub (404); ready to initialize seed';
+        return { content: null, status: 404 };
+      }
+
       if (!res.ok) {
-        console.warn(`[GitSync] Could not fetch remote database from GitHub (HTTP ${res.status}).`);
+        const statusMsg = `HTTP ${res.status}`;
+        console.warn(`[CloudSync] Remote fetch failed: ${statusMsg}; sync paused to protect data`);
+        this.syncPaused = true;
+        this.syncPauseReason = statusMsg;
         this.lastSyncTime = new Date().toISOString();
         this.lastSyncSuccess = false;
-        this.lastSyncMessage = `Could not fetch remote database from GitHub (HTTP ${res.status})`;
-        return null;
+        this.lastSyncMessage = `Could not fetch remote database from GitHub (${statusMsg})`;
+        return { content: null, status: res.status };
       }
 
       const data = (await res.json()) as any;
       if (!data || !data.content) {
-        return null;
+        console.warn('[CloudSync] Remote fetch returned empty content; sync paused to protect data');
+        this.syncPaused = true;
+        this.syncPauseReason = 'Empty payload';
+        return { content: null, status: 200 };
       }
 
       const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
-      console.log(`[GitSync] Successfully retrieved latest database from data repository (${repo} @ ${branch})`);
+      this.lastKnownRemoteSha = data.sha || null;
+      this.syncPaused = false;
+      this.syncPauseReason = null;
+
+      try {
+        const parsed = JSON.parse(decoded);
+        const accCount = Array.isArray(parsed.facultyAccounts) ? parsed.facultyAccounts.length : 0;
+        const tchCount = Array.isArray(parsed.teachers) ? parsed.teachers.length : 0;
+        this.lastKnownRemoteAccountCount = accCount;
+        console.log(`[CloudSync] Restored ${accCount} faculty accounts, ${tchCount} teachers from data repo`);
+      } catch {
+        // Ignored
+      }
+
       this.lastSyncTime = new Date().toISOString();
       this.lastSyncSuccess = true;
       this.lastSyncMessage = `Database restored from data repository ${repo} (${branch}) on startup`;
-      return decoded;
+      return { content: decoded, status: 200 };
     } catch (err: any) {
-      console.warn('[GitSync] Error fetching remote database from GitHub:', err?.message);
+      const errMsg = err?.message || 'Network error';
+      console.warn(`[CloudSync] Remote fetch failed: ${errMsg}; sync paused to protect data`);
+      this.syncPaused = true;
+      this.syncPauseReason = errMsg;
       this.lastSyncTime = new Date().toISOString();
       this.lastSyncSuccess = false;
-      this.lastSyncMessage = `Error fetching remote database: ${err?.message || 'Network error'}`;
-      return null;
+      this.lastSyncMessage = `Error fetching remote database: ${errMsg}`;
+      return { content: null, status: 500 };
     }
   }
 

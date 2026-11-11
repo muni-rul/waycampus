@@ -923,6 +923,16 @@ export class ApiService {
     message?: string;
     error?: string;
   }> {
+    const sessionToken = sessionStorage.getItem('campnav_admin_token');
+    const isRemote = params.targetUrl && !params.targetUrl.includes('localhost') && !params.targetUrl.includes('127.0.0.1');
+    if (isRemote && !params.targetAuthToken) {
+      if (sessionToken && !sessionToken.includes('bypass')) {
+        params.targetAuthToken = sessionToken;
+      } else {
+        throw new Error('Please authenticate as admin first via Faculty Credentials or Admin Login before publishing to a remote server.');
+      }
+    }
+
     const res = await fetch(`${getApiBaseUrl()}/publish/sync`, {
       method: 'POST',
       headers: {
@@ -942,7 +952,7 @@ export class ApiService {
     return data;
   }
 
-  public static async deployToRender(deployHookUrl?: string, allowGitPush: boolean = true): Promise<{
+  public static async deployToRender(deployHookUrl?: string): Promise<{
     success: boolean;
     gitSuccess?: boolean;
     commitHash?: string;
@@ -956,7 +966,7 @@ export class ApiService {
         'Content-Type': 'application/json',
         ...this.getAuthHeaders(),
       },
-      body: JSON.stringify({ deployHookUrl, allowGitPush }),
+      body: JSON.stringify({ deployHookUrl }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Publish failed' }));
