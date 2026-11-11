@@ -52,7 +52,13 @@ import {
   VERIFIED_PROGRAMMES,
   VERIFIED_DEPARTMENTS,
 } from '../../../shared/academicData';
-import { AdminUser, hashPassword } from '../middleware/auth';
+import {
+  AdminUser,
+  hashPassword,
+  verifyPassword,
+  generateSecureTempPassword,
+  isValidCollegeEmail,
+} from '../middleware/auth';
 import crypto from 'crypto';
 import { gitSyncService } from '../services/gitSyncService';
 import {
@@ -1131,6 +1137,23 @@ class DataStore {
       else if (locValidation.floorName) next.floorName = locValidation.floorName;
       next.isLocationVerified = true;
       next.locationStatus = 'VERIFIED';
+    }
+
+    if (updates.officialEmail !== undefined) {
+      const email = String(updates.officialEmail).trim().toLowerCase();
+      if (email && !isValidCollegeEmail(email)) {
+        throw new Error('Email must be a valid @christcollegeijk.edu.in address.');
+      }
+      next.officialEmail = email;
+      if (Array.isArray(this.state.facultyAccounts)) {
+        const acc = this.state.facultyAccounts.find(
+          (a) => a.facultyId === next.id || a.facultyId === next.facultyId
+        );
+        if (acc && email) {
+          acc.email = email;
+          acc.updatedAt = new Date().toISOString();
+        }
+      }
     }
 
     // Rebuild searchAliases so old department names are completely removed from this teacher
@@ -2787,7 +2810,21 @@ class DataStore {
   public exportDatabasePayload(): DatabaseState {
     const overrides = this.getGraphOverrides();
     overrides.contentHash = this.computeGraphContentHash(overrides);
-    return this.state;
+    const cleanState = JSON.parse(JSON.stringify(this.state));
+    // SECURITY GUARD: Never expose password hashes in publish sync payloads or repo exports
+    if (Array.isArray(cleanState.facultyAccounts)) {
+      cleanState.facultyAccounts = cleanState.facultyAccounts.map((a: any) => ({
+        ...a,
+        passwordHash: '[PROTECTED_ON_SERVER]',
+      }));
+    }
+    if (Array.isArray(cleanState.adminUsers)) {
+      cleanState.adminUsers = cleanState.adminUsers.map((u: any) => ({
+        ...u,
+        passwordHash: '[PROTECTED_ON_SERVER]',
+      }));
+    }
+    return cleanState;
   }
 
   public importPublishedDatabase(
@@ -2845,12 +2882,36 @@ class DataStore {
 
     const preservedSnapshots = this.state.snapshots || [];
     const preservedAdminUsers = this.state.adminUsers || [];
+    const preservedFacultyAccounts = this.state.facultyAccounts || [];
+
+    // Safely preserve existing server faculty accounts
+    let mergedAccounts = preservedFacultyAccounts;
+    if (Array.isArray(incomingState.facultyAccounts)) {
+      mergedAccounts = incomingState.facultyAccounts.map((incAcc) => {
+        const existing = preservedFacultyAccounts.find(
+          (p) => p.id === incAcc.id || p.facultyId === incAcc.facultyId
+        );
+        if (incAcc.passwordHash === '[PROTECTED_ON_SERVER]' && existing) {
+          return { ...incAcc, passwordHash: existing.passwordHash };
+        }
+        return existing || incAcc;
+      });
+    }
 
     this.state = {
       ...incomingState,
+      facultyAccounts: mergedAccounts,
       adminUsers:
         Array.isArray(incomingState.adminUsers) && incomingState.adminUsers.length > 0
-          ? incomingState.adminUsers
+          ? incomingState.adminUsers.map((u) => {
+              if (u.passwordHash === '[PROTECTED_ON_SERVER]') {
+                const existing = preservedAdminUsers.find(
+                  (p) => p.id === u.id || p.username === u.username
+                );
+                return existing ? { ...u, passwordHash: existing.passwordHash } : u;
+              }
+              return u;
+            })
           : preservedAdminUsers,
       snapshots: preservedSnapshots,
     };
@@ -4105,9 +4166,10 @@ class DataStore {
     facultyId: string;
     email: string;
     facultyCode?: string;
-    password: string;
+    password?: string;
     mustChangePassword?: boolean;
-  }): FacultyAccount {
+    performedBy?: string;
+  }): FacultyAccount & { temporaryPassword?: string } {
     const teacher = this.state.teachers.find(
       (t) => t.id === data.facultyId || t.facultyId === data.facultyId
     );
@@ -4123,14 +4185,40 @@ class DataStore {
       throw new Error(`An account already exists for faculty member "${teacher.name}".`);
     }
 
-    const email = data.email.trim().toLowerCase();
+    const email = (data.email || '').trim().toLowerCase();
+    if (!isValidCollegeEmail(email)) {
+      throw new Error(`Invalid email "${data.email}". Email must belong to @christcollegeijk.edu.in domain.`);
+    }
+
     if (this.state.facultyAccounts.some((a) => a.email.toLowerCase() === email)) {
       throw new Error(`Email "${data.email}" is already registered to another faculty account.`);
+    }
+
+    // Duplicate check across teachers: block if multiple teachers share this email
+    const duplicateTeachers = this.state.teachers.filter(
+      (t) => (t.officialEmail || '').trim().toLowerCase() === email
+    );
+    if (duplicateTeachers.length > 1) {
+      throw new Error(
+        `Cannot create account: email "${data.email}" is shared by ${duplicateTeachers.length} faculty members. Duplicate emails must be resolved before account creation.`
+      );
     }
 
     const facultyCode = (data.facultyCode || data.facultyId).trim();
     if (this.state.facultyAccounts.some((a) => a.facultyCode.toLowerCase() === facultyCode.toLowerCase())) {
       throw new Error(`Faculty code "${facultyCode}" is already in use.`);
+    }
+
+    const collidingAccount = this.state.facultyAccounts.find(
+      (a) => a.facultyCode.toLowerCase() === email || a.email.toLowerCase() === facultyCode.toLowerCase()
+    );
+    if (collidingAccount) {
+      throw new Error(`Identifier collision detected with existing account.`);
+    }
+
+    const tempPassword = data.password ? String(data.password).trim() : generateSecureTempPassword();
+    if (tempPassword.length < 10) {
+      throw new Error('Password must be at least 10 characters.');
     }
 
     const now = new Date().toISOString();
@@ -4139,7 +4227,7 @@ class DataStore {
       facultyId: data.facultyId,
       email,
       facultyCode,
-      passwordHash: hashPassword(data.password),
+      passwordHash: hashPassword(tempPassword),
       role: 'FACULTY',
       isActive: true,
       mustChangePassword: data.mustChangePassword !== undefined ? data.mustChangePassword : true,
@@ -4148,29 +4236,94 @@ class DataStore {
     };
 
     this.state.facultyAccounts.push(account);
+
+    this.logAdminAction({
+      adminUsername: data.performedBy || 'Admin',
+      action: 'CREATE_FACULTY_ACCOUNT',
+      entity: 'FACULTY_ACCOUNT',
+      entityId: account.id,
+      after: {
+        facultyId: account.facultyId,
+        facultyName: teacher.name,
+        email: account.email,
+        facultyCode: account.facultyCode,
+        mustChangePassword: account.mustChangePassword,
+      },
+      notes: `Created faculty login account for ${account.facultyId} (${teacher.name})`,
+    });
+
     this.persist(true);
-    return account;
+    return { ...account, temporaryPassword: tempPassword };
   }
 
-  public toggleFacultyAccountActive(accountId: string, isActive: boolean): FacultyAccount | undefined {
+  public toggleFacultyAccountActive(
+    accountId: string,
+    isActive: boolean,
+    performedBy?: string
+  ): FacultyAccount | undefined {
     if (!this.state.facultyAccounts) return undefined;
     const acc = this.state.facultyAccounts.find((a) => a.id === accountId);
     if (!acc) return undefined;
+    const prevActive = acc.isActive;
     acc.isActive = isActive;
     acc.updatedAt = new Date().toISOString();
+
+    this.logAdminAction({
+      adminUsername: performedBy || 'Admin',
+      action: 'TOGGLE_FACULTY_ACCOUNT_ACTIVE',
+      entity: 'FACULTY_ACCOUNT',
+      entityId: acc.id,
+      before: { isActive: prevActive },
+      after: { isActive },
+      notes: `Faculty account ${isActive ? 'activated' : 'disabled'} for ${acc.facultyId}`,
+    });
+
     this.persist(true);
     return acc;
   }
 
-  public resetFacultyAccountPassword(accountId: string, newPassword: string, mustChangePassword: boolean = true): FacultyAccount | undefined {
+  public resetFacultyAccountPassword(
+    accountId: string,
+    newPassword?: string,
+    mustChangePassword: boolean = true,
+    performedBy?: string
+  ): (FacultyAccount & { temporaryPassword?: string }) | undefined {
     if (!this.state.facultyAccounts) return undefined;
     const acc = this.state.facultyAccounts.find((a) => a.id === accountId);
     if (!acc) return undefined;
-    acc.passwordHash = hashPassword(newPassword);
+
+    let tempPass: string;
+    if (newPassword && String(newPassword).trim().length > 0) {
+      const cleanNew = String(newPassword).trim();
+      if (cleanNew.length < 10) {
+        throw new Error('New password must be at least 10 characters.');
+      }
+      if (verifyPassword(cleanNew, acc.passwordHash)) {
+        throw new Error('New password cannot be the same as the current password.');
+      }
+      tempPass = cleanNew;
+    } else {
+      tempPass = generateSecureTempPassword();
+    }
+
+    acc.passwordHash = hashPassword(tempPass);
     acc.mustChangePassword = mustChangePassword;
     acc.updatedAt = new Date().toISOString();
+
+    this.logAdminAction({
+      adminUsername: performedBy || 'Admin',
+      action: 'RESET_FACULTY_PASSWORD',
+      entity: 'FACULTY_ACCOUNT',
+      entityId: acc.id,
+      after: {
+        facultyId: acc.facultyId,
+        mustChangePassword: acc.mustChangePassword,
+      },
+      notes: `Reset password for faculty account "${acc.id}" (${acc.facultyId})`,
+    });
+
     this.persist(true);
-    return acc;
+    return { ...acc, temporaryPassword: tempPass };
   }
 
   public recordFacultyLogin(accountId: string): void {

@@ -179,14 +179,22 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`[CampusNav Server] Server running on http://localhost:${PORT}`);
-  console.log(`[CampusNav Server] Health endpoint: http://localhost:${PORT}/api/v1/health`);
+let server: any;
 
-  // Pull latest database backup from isolated data repository if configured
-  store.initCloudSync().catch((err) => {
+async function bootstrap() {
+  // Ensure database and faculty accounts are restored from data repository before accepting requests
+  try {
+    await store.initCloudSync();
+  } catch (err: any) {
     console.warn('[CampusNav Server] Initial cloud sync warning:', err?.message);
+  }
+
+  server = app.listen(PORT, () => {
+    console.log(`[CampusNav Server] Server running on http://localhost:${PORT}`);
+    console.log(`[CampusNav Server] Health endpoint: http://localhost:${PORT}/api/v1/health`);
   });
-});
+}
+
+bootstrap();
 
 export { app, server };

@@ -71,6 +71,55 @@ export function generateFacultyToken(
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '14d' });
 }
 
+/**
+ * Validates whether an email has a correct format and belongs to @christcollegeijk.edu.in
+ */
+export function isValidCollegeEmail(email?: string | null): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const trimmed = email.trim().toLowerCase();
+  const emailRegex = /^[a-z0-9][a-z0-9._%+-]*@christcollegeijk\.edu\.in$/;
+  return emailRegex.test(trimmed);
+}
+
+/**
+ * Generates a cryptographically secure 14-character temporary password.
+ * - Exactly 14 characters
+ * - Mixed case (uppercase and lowercase) and digits
+ * - NO ambiguous characters: excludes '0', 'O', '1', 'l', 'I', 'o'
+ * - Uses crypto.randomInt
+ */
+export function generateSecureTempPassword(): string {
+  const UPPERCASE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // excludes 'I', 'O' (24 chars)
+  const LOWERCASE_CHARS = 'abcdefghjkmnpqrstuvwxyz'; // excludes 'l', 'o' (24 chars)
+  const DIGIT_CHARS = '23456789'; // excludes '0', '1' (8 chars)
+  const ALL_CHARS = UPPERCASE_CHARS + LOWERCASE_CHARS + DIGIT_CHARS; // 56 chars
+
+  // Guarantee mixed case and digits: at least 2 uppercase, 2 lowercase, 2 digits
+  const chars: string[] = [
+    UPPERCASE_CHARS[crypto.randomInt(0, UPPERCASE_CHARS.length)],
+    UPPERCASE_CHARS[crypto.randomInt(0, UPPERCASE_CHARS.length)],
+    LOWERCASE_CHARS[crypto.randomInt(0, LOWERCASE_CHARS.length)],
+    LOWERCASE_CHARS[crypto.randomInt(0, LOWERCASE_CHARS.length)],
+    DIGIT_CHARS[crypto.randomInt(0, DIGIT_CHARS.length)],
+    DIGIT_CHARS[crypto.randomInt(0, DIGIT_CHARS.length)],
+  ];
+
+  // Fill remaining 8 characters from ALL_CHARS to total 14
+  for (let i = 6; i < 14; i++) {
+    chars.push(ALL_CHARS[crypto.randomInt(0, ALL_CHARS.length)]);
+  }
+
+  // Cryptographically shuffle array using Fisher-Yates
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    const temp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = temp;
+  }
+
+  return chars.join('');
+}
+
 export function generateAdminToken(
   username: string = 'admin',
   role: 'SUPER_ADMIN' | 'COLLEGE_ADMIN' = 'COLLEGE_ADMIN',

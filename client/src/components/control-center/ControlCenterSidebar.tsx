@@ -19,7 +19,8 @@ import {
   ChevronRight,
   Shield,
   Layers,
-  Crown
+  Crown,
+  KeyRound
 } from 'lucide-react';
 
 export type ControlCenterSectionId =
@@ -27,6 +28,7 @@ export type ControlCenterSectionId =
   | 'campus'
   | 'tags'
   | 'faculty'
+  | 'credentials'
   | 'panoramas'
   | 'publish';
 
@@ -50,6 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'campus', label: 'Rooms, Classes & Blocks', icon: Building2, group: 'CAMPUS DATA' },
   { id: 'tags', label: 'Tags & Places', icon: MapPin, group: 'CAMPUS DATA' },
   { id: 'faculty', label: 'Faculty Details', icon: Users, group: 'CAMPUS DATA' },
+  { id: 'credentials', label: 'Faculty Credentials', icon: KeyRound, group: 'CAMPUS DATA' },
   { id: 'panoramas', label: 'Edit Connections', icon: Camera, group: 'CAMPUS DATA' },
   { id: 'publish', label: 'Publish', icon: UploadCloud, group: 'PUBLISH' },
 ];

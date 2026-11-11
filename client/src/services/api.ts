@@ -29,12 +29,45 @@ import {
 import { PanoramaNode } from '../../../shared/types';
 import { logoutAdmin } from '../utils/security';
 
+let customApiBaseUrl: string | null = null;
+
+export function getApiBaseUrl(): string {
+  if (customApiBaseUrl) return customApiBaseUrl;
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const saved = localStorage.getItem('campnav_api_base_url');
+    if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+  }
+  return '/api/v1';
+}
+
 const API_BASE_URL = '/api/v1';
 
 export class ApiService {
+  public static getBaseUrl(): string {
+    return getApiBaseUrl();
+  }
+
+  public static setBaseUrl(url: string | null): void {
+    const oldUrl = customApiBaseUrl;
+    customApiBaseUrl = url ? url.trim().replace(/\/+$/, '') : null;
+    if (typeof window !== 'undefined') {
+      // Clear admin session token whenever target API changes
+      if (oldUrl !== customApiBaseUrl && typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('campnav_admin_token');
+      }
+      if (typeof localStorage !== 'undefined') {
+        if (customApiBaseUrl) {
+          localStorage.setItem('campnav_api_base_url', customApiBaseUrl);
+        } else {
+          localStorage.removeItem('campnav_api_base_url');
+        }
+      }
+    }
+  }
+
   public static async checkHealth() {
     try {
-      const res = await fetch(`${API_BASE_URL}/health`);
+      const res = await fetch(`${getApiBaseUrl()}/health`);
       return await res.json();
     } catch {
       return { status: 'offline' };
@@ -46,7 +79,7 @@ export class ApiService {
     userLocation?: { x: number; y: number; z: number; floorNumber?: number }
   ): Promise<SearchResult[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/search`, {
+      const res = await fetch(`${getApiBaseUrl()}/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, userLocation }),
@@ -67,7 +100,7 @@ export class ApiService {
     avoidClosed: boolean = true
   ): Promise<RouteResult | null> {
     try {
-      const res = await fetch(`${API_BASE_URL}/navigation/route`, {
+      const res = await fetch(`${getApiBaseUrl()}/navigation/route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromNodeId, toNodeId, accessibleOnly, avoidClosed }),
@@ -81,23 +114,23 @@ export class ApiService {
   }
 
   public static async getCampuses(): Promise<Campus[]> {
-    const res = await fetch(`${API_BASE_URL}/campuses`);
+    const res = await fetch(`${getApiBaseUrl()}/campuses`);
     return await res.json();
   }
 
   public static async getBuildings(): Promise<Building[]> {
-    const res = await fetch(`${API_BASE_URL}/buildings`);
+    const res = await fetch(`${getApiBaseUrl()}/buildings`);
     return await res.json();
   }
 
   public static async getFloors(buildingId?: string): Promise<Floor[]> {
-    const url = buildingId ? `${API_BASE_URL}/floors?buildingId=${buildingId}` : `${API_BASE_URL}/floors`;
+    const url = buildingId ? `${getApiBaseUrl()}/floors?buildingId=${buildingId}` : `${getApiBaseUrl()}/floors`;
     const res = await fetch(url);
     return await res.json();
   }
 
   public static async getRooms(buildingId?: string, floorId?: string): Promise<Room[]> {
-    let url = `${API_BASE_URL}/rooms`;
+    let url = `${getApiBaseUrl()}/rooms`;
     const params = new URLSearchParams();
     if (buildingId) params.append('buildingId', buildingId);
     if (floorId) params.append('floorId', floorId);
@@ -107,7 +140,7 @@ export class ApiService {
   }
 
   public static async addRoom(room: Room): Promise<Room> {
-    const res = await fetch(`${API_BASE_URL}/admin/rooms`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/rooms`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -123,7 +156,7 @@ export class ApiService {
   }
 
   public static async updateRoom(id: string, updates: Partial<Room>): Promise<Room> {
-    const res = await fetch(`${API_BASE_URL}/admin/rooms/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/rooms/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -139,7 +172,7 @@ export class ApiService {
   }
 
   public static async deleteRoom(id: string): Promise<{ success: boolean }> {
-    const res = await fetch(`${API_BASE_URL}/admin/rooms/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/rooms/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -151,37 +184,37 @@ export class ApiService {
   }
 
   public static async getDepartments(): Promise<Department[]> {
-    const res = await fetch(`${API_BASE_URL}/departments`);
+    const res = await fetch(`${getApiBaseUrl()}/departments`);
     return await res.json();
   }
 
   public static async getTeachers(): Promise<Teacher[]> {
-    const res = await fetch(`${API_BASE_URL}/teachers`);
+    const res = await fetch(`${getApiBaseUrl()}/teachers`);
     return await res.json();
   }
 
   public static async getFacilities(): Promise<Facility[]> {
-    const res = await fetch(`${API_BASE_URL}/facilities`);
+    const res = await fetch(`${getApiBaseUrl()}/facilities`);
     return await res.json();
   }
 
   public static async getNodes(): Promise<NavigationNode[]> {
-    const res = await fetch(`${API_BASE_URL}/nodes`);
+    const res = await fetch(`${getApiBaseUrl()}/nodes`);
     return await res.json();
   }
 
   public static async getEdges(): Promise<NavigationEdge[]> {
-    const res = await fetch(`${API_BASE_URL}/edges`);
+    const res = await fetch(`${getApiBaseUrl()}/edges`);
     return await res.json();
   }
 
   public static async getQRCheckpoints(): Promise<QRCheckpoint[]> {
-    const res = await fetch(`${API_BASE_URL}/qr`);
+    const res = await fetch(`${getApiBaseUrl()}/qr`);
     return await res.json();
   }
 
   public static async resolveQR(code: string): Promise<QRCheckpoint> {
-    const res = await fetch(`${API_BASE_URL}/qr/${encodeURIComponent(code)}`);
+    const res = await fetch(`${getApiBaseUrl()}/qr/${encodeURIComponent(code)}`);
     if (!res.ok) throw new Error('QR not found');
     const data = await res.json();
     return data.checkpoint || data;
@@ -193,18 +226,18 @@ export class ApiService {
     if (buildingId) params.append('buildingId', buildingId);
     if (floorNumber !== undefined) params.append('floorNumber', floorNumber.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
-    const res = await fetch(`${API_BASE_URL}/panoramas${query}`);
+    const res = await fetch(`${getApiBaseUrl()}/panoramas${query}`);
     return await res.json();
   }
 
   public static async getPanoramaById(id: string): Promise<PanoramaNode> {
-    const res = await fetch(`${API_BASE_URL}/panoramas/${encodeURIComponent(id)}`);
+    const res = await fetch(`${getApiBaseUrl()}/panoramas/${encodeURIComponent(id)}`);
     if (!res.ok) throw new Error('Panorama node not found');
     return await res.json();
   }
 
   public static async getPanoramaByNodeId(nodeId: string): Promise<PanoramaNode | null> {
-    const res = await fetch(`${API_BASE_URL}/panoramas/node/${encodeURIComponent(nodeId)}`);
+    const res = await fetch(`${getApiBaseUrl()}/panoramas/node/${encodeURIComponent(nodeId)}`);
     if (!res.ok) return null;
     return await res.json();
   }
@@ -213,7 +246,7 @@ export class ApiService {
     pathNodeIds: string[],
     instructions: Instruction[] = []
   ): Promise<any[]> {
-    const res = await fetch(`${API_BASE_URL}/panoramas/route-sequence`, {
+    const res = await fetch(`${getApiBaseUrl()}/panoramas/route-sequence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pathNodeIds, instructions }),
@@ -223,24 +256,33 @@ export class ApiService {
   }
 
   // --- Admin Endpoints & Authentication ---
+  public static isRemoteTarget(): boolean {
+    const currentBase = getApiBaseUrl();
+    return currentBase.startsWith('http') && !currentBase.includes('localhost') && !currentBase.includes('127.0.0.1');
+  }
+
+  public static getAdminToken(): string | null {
+    if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem('campnav_admin_token');
+    }
+    return null;
+  }
+
+  public static hasAdminToken(): boolean {
+    const token = this.getAdminToken();
+    return Boolean(token && token !== 'dev-localhost-unrestricted-bypass-token');
+  }
+
   private static getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    let token =
-      sessionStorage.getItem('campnav_admin_token') ||
-      localStorage.getItem('campnav_admin_token');
-    
-    // Auto fallback for control center operations to prevent 401 errors
-    if (!token) {
+    // Admin auth token is stored strictly in sessionStorage only (never in localStorage)
+    let token = this.getAdminToken();
+
+    // Auto dev bypass fallback ONLY for local development when not pointed at a remote host
+    if (!token && !this.isRemoteTarget()) {
       token = 'dev-localhost-unrestricted-bypass-token';
-      if (typeof window !== 'undefined') {
-        try {
-          sessionStorage.setItem('campnav_admin_token', token);
-        } catch {
-          // Ignore storage quota errors
-        }
-      }
     }
 
     if (token) {
@@ -251,27 +293,46 @@ export class ApiService {
 
   public static async adminLogin(credentials: string | { username?: string; password?: string; pin?: string }) {
     const payload = typeof credentials === 'string' ? { pin: credentials } : credentials;
-    const res = await fetch(`${API_BASE_URL}/admin/login`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (res.status === 404) {
+      throw new Error('Admin access is disabled on that server. Set ADMIN_PASSWORD and ADMIN_EMERGENCY_PIN on the server.');
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Authentication failed' }));
       throw new Error(err.error || 'Access denied');
+    }
+    const data = await res.json();
+    if (data.token && typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
+      // Store in sessionStorage only
+      sessionStorage.setItem('campnav_admin_token', data.token);
+    }
+    return data;
+  }
+
+  public static async getPersistenceStatus() {
+    const res = await fetch(`${getApiBaseUrl()}/admin/persistence/status`, {
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to fetch persistence status' }));
+      throw new Error(err.error || 'Failed to fetch persistence status');
     }
     return await res.json();
   }
 
   public static async getAdminUsers() {
-    const res = await fetch(`${API_BASE_URL}/admin/users`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/users`, {
       headers: this.getAuthHeaders(),
     });
     return await res.json();
   }
 
   public static async createAdminUser(data: { username: string; password: string; name?: string; email?: string; role?: string }) {
-    const res = await fetch(`${API_BASE_URL}/admin/users`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/users`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(data),
@@ -284,7 +345,7 @@ export class ApiService {
   }
 
   public static async deleteAdminUser(id: string) {
-    const res = await fetch(`${API_BASE_URL}/admin/users/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/users/${id}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -301,7 +362,7 @@ export class ApiService {
     status: VerificationStatus,
     verifiedBy: string = 'Campus Admin'
   ) {
-    const res = await fetch(`${API_BASE_URL}/admin/verify`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/verify`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ entityType, id, status, verifiedBy }),
@@ -310,7 +371,7 @@ export class ApiService {
   }
 
   public static async addTeacher(teacher: Teacher) {
-    const res = await fetch(`${API_BASE_URL}/admin/teachers`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/teachers`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(teacher),
@@ -319,7 +380,7 @@ export class ApiService {
   }
 
   public static async bulkUploadTeachers(teachers: Partial<Teacher>[]) {
-    const res = await fetch(`${API_BASE_URL}/admin/teachers/bulk`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/teachers/bulk`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ teachers }),
@@ -328,7 +389,7 @@ export class ApiService {
   }
 
   public static async updateTeacher(id: string, updates: Partial<Teacher>): Promise<Teacher> {
-    const res = await fetch(`${API_BASE_URL}/admin/teachers/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/teachers/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -337,7 +398,7 @@ export class ApiService {
   }
 
   public static async deleteTeacher(id: string) {
-    const res = await fetch(`${API_BASE_URL}/admin/teachers/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/teachers/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -345,7 +406,7 @@ export class ApiService {
   }
 
   public static async createDepartment(department: Partial<Department>): Promise<Department> {
-    const res = await fetch(`${API_BASE_URL}/admin/departments`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/departments`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(department),
@@ -354,7 +415,7 @@ export class ApiService {
   }
 
   public static async updateDepartment(id: string, updates: Partial<Department>): Promise<Department> {
-    const res = await fetch(`${API_BASE_URL}/admin/departments/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/departments/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -366,7 +427,7 @@ export class ApiService {
     deptId: string,
     tag: { tagId: string; tagName: string; nodeId: string; buildingName?: string; floorName?: string }
   ) {
-    const res = await fetch(`${API_BASE_URL}/admin/departments/${encodeURIComponent(deptId)}/assign-tag`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/departments/${encodeURIComponent(deptId)}/assign-tag`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(tag),
@@ -375,7 +436,7 @@ export class ApiService {
   }
 
   public static async updateEdge(id: string, updates: Partial<NavigationEdge>) {
-    const res = await fetch(`${API_BASE_URL}/admin/edges/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/edges/${id}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -384,7 +445,7 @@ export class ApiService {
   }
 
   public static async updateNode(id: string, updates: Partial<NavigationNode>) {
-    const res = await fetch(`${API_BASE_URL}/admin/nodes/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/nodes/${id}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -393,7 +454,7 @@ export class ApiService {
   }
 
   public static async addNode(node: NavigationNode) {
-    const res = await fetch(`${API_BASE_URL}/admin/nodes`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/nodes`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(node),
@@ -402,7 +463,7 @@ export class ApiService {
   }
 
   public static async addEdge(edge: NavigationEdge) {
-    const res = await fetch(`${API_BASE_URL}/admin/edges`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/edges`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(edge),
@@ -411,7 +472,7 @@ export class ApiService {
   }
 
   public static async deleteNode(id: string) {
-    const res = await fetch(`${API_BASE_URL}/admin/nodes/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/nodes/${id}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -419,7 +480,7 @@ export class ApiService {
   }
 
   public static async resetDatabase() {
-    const res = await fetch(`${API_BASE_URL}/admin/reset`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/reset`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
     });
@@ -427,14 +488,14 @@ export class ApiService {
   }
 
   public static async getAnalytics() {
-    const res = await fetch(`${API_BASE_URL}/admin/analytics`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/analytics`, {
       headers: this.getAuthHeaders(),
     });
     return await res.json();
   }
 
   public static async addPanorama(pano: PanoramaNode) {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(pano),
@@ -443,7 +504,7 @@ export class ApiService {
   }
 
   public static async updatePanorama(id: string, updates: Partial<PanoramaNode>) {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas/${id}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -452,7 +513,7 @@ export class ApiService {
   }
 
   public static async deletePanorama(id: string) {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas/${id}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -460,7 +521,7 @@ export class ApiService {
   }
 
   public static async getHealthAudit() {
-    const res = await fetch(`${API_BASE_URL}/admin/health-audit`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/health-audit`, {
       headers: this.getAuthHeaders(),
     });
     return await res.json();
@@ -503,7 +564,7 @@ export class ApiService {
       if (filter?.status) params.append('status', filter.status);
       if (filter?.verifiedOnly) params.append('verifiedOnly', 'true');
 
-      const res = await fetch(`${API_BASE_URL}/places?${params.toString()}`);
+      const res = await fetch(`${getApiBaseUrl()}/places?${params.toString()}`);
       return await this.safeJsonParse(res, []);
     } catch (err) {
       console.warn('[ApiService.getPlaces] Failed:', err);
@@ -513,7 +574,7 @@ export class ApiService {
 
   public static async getPlacesForPanorama(panoramaId: string) {
     try {
-      const res = await fetch(`${API_BASE_URL}/places/panorama/${encodeURIComponent(panoramaId)}`);
+      const res = await fetch(`${getApiBaseUrl()}/places/panorama/${encodeURIComponent(panoramaId)}`);
       return await this.safeJsonParse(res, []);
     } catch (err) {
       console.warn('[ApiService.getPlacesForPanorama] Failed:', err);
@@ -523,7 +584,7 @@ export class ApiService {
 
   public static async getPlaceById(id: string) {
     try {
-      const res = await fetch(`${API_BASE_URL}/places/${encodeURIComponent(id)}`);
+      const res = await fetch(`${getApiBaseUrl()}/places/${encodeURIComponent(id)}`);
       return await this.safeJsonParse(res, null);
     } catch (err) {
       console.warn('[ApiService.getPlaceById] Failed:', err);
@@ -532,7 +593,7 @@ export class ApiService {
   }
 
   public static async addPlace(place: any, verifiedBy: string = 'Campus Mapper') {
-    const res = await fetch(`${API_BASE_URL}/places`, {
+    const res = await fetch(`${getApiBaseUrl()}/places`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -548,7 +609,7 @@ export class ApiService {
   }
 
   public static async updatePlace(id: string, updates: any, reason: string = 'Location details updated', updatedBy: string = 'Campus Mapper') {
-    const res = await fetch(`${API_BASE_URL}/places/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/places/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -560,7 +621,7 @@ export class ApiService {
   }
 
   public static async deletePlace(id: string, reason: string = 'Location archived/deleted', deletedBy: string = 'Campus Mapper') {
-    const res = await fetch(`${API_BASE_URL}/places/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${getApiBaseUrl()}/places/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -573,7 +634,7 @@ export class ApiService {
 
   public static async checkDuplicatePlace(name: string, roomNumber?: string | null, buildingId?: string, floorId?: string, currentPlaceId?: string) {
     try {
-      const res = await fetch(`${API_BASE_URL}/places/check-duplicate`, {
+      const res = await fetch(`${getApiBaseUrl()}/places/check-duplicate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, roomNumber, buildingId, floorId, currentPlaceId }),
@@ -588,7 +649,7 @@ export class ApiService {
   public static async getPlaceAuditLogs(placeId?: string) {
     try {
       const params = placeId ? `?placeId=${encodeURIComponent(placeId)}` : '';
-      const res = await fetch(`${API_BASE_URL}/places/audit/log${params}`);
+      const res = await fetch(`${getApiBaseUrl()}/places/audit/log${params}`);
       return await this.safeJsonParse(res, []);
     } catch (err) {
       console.warn('[ApiService.getPlaceAuditLogs] Failed:', err);
@@ -597,7 +658,7 @@ export class ApiService {
   }
 
   public static async parseNaturalPlaceInput(text: string) {
-    const res = await fetch(`${API_BASE_URL}/places/parse-natural`, {
+    const res = await fetch(`${getApiBaseUrl()}/places/parse-natural`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
@@ -616,7 +677,7 @@ export class ApiService {
     } catch {}
 
     try {
-      const res = await fetch(`${API_BASE_URL}/graph/overrides`);
+      const res = await fetch(`${getApiBaseUrl()}/graph/overrides`);
       if (res.ok) {
         const data = await res.json();
         if (data && typeof data === 'object') {
@@ -666,7 +727,7 @@ export class ApiService {
     } catch {}
 
     // 2. Persist to backend server API
-    const res = await fetch(`${API_BASE_URL}/graph/overrides`, {
+    const res = await fetch(`${getApiBaseUrl()}/graph/overrides`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -709,7 +770,7 @@ export class ApiService {
     };
     overrides: any;
   }> {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas/upload`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -728,7 +789,7 @@ export class ApiService {
 
   public static async validateGraph(nodes: any[] = [], overrides?: any) {
     try {
-      const res = await fetch(`${API_BASE_URL}/graph/validate`, {
+      const res = await fetch(`${getApiBaseUrl()}/graph/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes, overrides }),
@@ -740,7 +801,7 @@ export class ApiService {
     }
   }
   public static async calibratePanoramaHeading(id: string, northOffset: number, savedBy: string = 'Admin') {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas/${id}/calibrate`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas/${id}/calibrate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -752,7 +813,7 @@ export class ApiService {
   }
 
   public static async saveEdgeCost(fromNodeId: string, toNodeId: string, distance: number, walkingCost: number, savedBy: string = 'Admin') {
-    const res = await fetch(`${API_BASE_URL}/admin/edges/cost`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/edges/cost`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -764,7 +825,7 @@ export class ApiService {
   }
 
   public static async replacePanoramaImage(id: string, imagePath: string, filename: string, savedBy: string = 'Admin') {
-    const res = await fetch(`${API_BASE_URL}/admin/panoramas/${id}/image`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/panoramas/${id}/image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -810,7 +871,7 @@ export class ApiService {
       warnings: string[];
     };
   }> {
-    const res = await fetch(`${API_BASE_URL}/publish/status`, {
+    const res = await fetch(`${getApiBaseUrl()}/publish/status`, {
       headers: this.getAuthHeaders(),
     });
     return await this.safeJsonParse(res, {
@@ -832,7 +893,7 @@ export class ApiService {
     validation: any;
     remoteStatus?: any;
   }> {
-    const res = await fetch(`${API_BASE_URL}/publish/validate`, {
+    const res = await fetch(`${getApiBaseUrl()}/publish/validate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -862,7 +923,7 @@ export class ApiService {
     message?: string;
     error?: string;
   }> {
-    const res = await fetch(`${API_BASE_URL}/publish/sync`, {
+    const res = await fetch(`${getApiBaseUrl()}/publish/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -889,7 +950,7 @@ export class ApiService {
     message?: string;
     error?: string;
   }> {
-    const res = await fetch(`${API_BASE_URL}/publish/deploy`, {
+    const res = await fetch(`${getApiBaseUrl()}/publish/deploy`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -906,11 +967,11 @@ export class ApiService {
 
   public static getDatabaseExportUrl(): string {
     const token = sessionStorage.getItem('campnav_admin_token');
-    return token ? `${API_BASE_URL}/publish/export-db?token=${encodeURIComponent(token)}` : `${API_BASE_URL}/publish/export-db`;
+    return token ? `${getApiBaseUrl()}/publish/export-db?token=${encodeURIComponent(token)}` : `${getApiBaseUrl()}/publish/export-db`;
   }
 
   public static async importDatabase(payload: any): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE_URL}/publish/import-db`, {
+    const res = await fetch(`${getApiBaseUrl()}/publish/import-db`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -991,7 +1052,7 @@ export class ApiService {
 
     // 1. Submit to primary backend server API
     try {
-      const res = await fetch(`${API_BASE_URL}/reports`, {
+      const res = await fetch(`${getApiBaseUrl()}/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(report),
@@ -1120,7 +1181,7 @@ export class ApiService {
       if (params?.offset) query.set('offset', String(params.offset));
 
       const queryStr = query.toString() ? `?${query.toString()}` : '';
-      const url = `${API_BASE_URL}/admin/reports${queryStr}`;
+      const url = `${getApiBaseUrl()}/admin/reports${queryStr}`;
       const res = await fetch(url, {
         headers: this.getAuthHeaders(),
       });
@@ -1197,7 +1258,7 @@ export class ApiService {
 
   public static async getAdminReportById(id: string): Promise<{ success: boolean; report: CampusReport }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/reports/${id}`, {
+      const res = await fetch(`${getApiBaseUrl()}/admin/reports/${id}`, {
         headers: this.getAuthHeaders(),
       });
       if (res.ok) {
@@ -1233,7 +1294,7 @@ export class ApiService {
 
     // 2. Send update to local server API
     try {
-      await fetch(`${API_BASE_URL}/admin/reports/${id}`, {
+      await fetch(`${getApiBaseUrl()}/admin/reports/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1257,7 +1318,7 @@ export class ApiService {
 
     // 2. Send delete to relative server API
     try {
-      await fetch(`${API_BASE_URL}/admin/reports/${id}`, {
+      await fetch(`${getApiBaseUrl()}/admin/reports/${id}`, {
         method: 'DELETE',
         headers: this.getAuthHeaders(),
       });
@@ -1269,7 +1330,7 @@ export class ApiService {
   public static async clearAllAdminReports(): Promise<{ success: boolean; message: string }> {
     this.setLocalReports([]);
     try {
-      await fetch(`${API_BASE_URL}/admin/reports`, {
+      await fetch(`${getApiBaseUrl()}/admin/reports`, {
         method: 'DELETE',
         headers: this.getAuthHeaders(),
       });
@@ -1295,7 +1356,7 @@ export class ApiService {
   // Public (Students & Campus Users - Read-Only)
   public static async getFacultyStatuses(): Promise<Record<string, PublicFacultyStatus>> {
     try {
-      const res = await fetch(`${API_BASE_URL}/faculty/statuses`);
+      const res = await fetch(`${getApiBaseUrl()}/faculty/statuses`);
       if (!res.ok) return {};
       const data = await res.json();
       return data.statuses || {};
@@ -1307,7 +1368,7 @@ export class ApiService {
 
   public static async getFacultyStatus(facultyId: string): Promise<PublicFacultyStatus | null> {
     try {
-      const res = await fetch(`${API_BASE_URL}/faculty/${encodeURIComponent(facultyId)}/status`);
+      const res = await fetch(`${getApiBaseUrl()}/faculty/${encodeURIComponent(facultyId)}/status`);
       if (!res.ok) return null;
       const data = await res.json();
       return data.status || null;
@@ -1325,7 +1386,7 @@ export class ApiService {
     nodeId: string;
   }>> {
     try {
-      const res = await fetch(`${API_BASE_URL}/faculty/verified-classrooms`);
+      const res = await fetch(`${getApiBaseUrl()}/faculty/verified-classrooms`);
       if (!res.ok) return [];
       const data = await res.json();
       return data.classrooms || [];
@@ -1345,7 +1406,7 @@ export class ApiService {
     message: string;
     faculty: any;
   }> {
-    const res = await fetch(`${API_BASE_URL}/faculty/activate`, {
+    const res = await fetch(`${getApiBaseUrl()}/faculty/activate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1378,7 +1439,7 @@ export class ApiService {
       departmentPlaceNodeId?: string;
     };
   }> {
-    const res = await fetch(`${API_BASE_URL}/faculty/login`, {
+    const res = await fetch(`${getApiBaseUrl()}/faculty/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, password }),
@@ -1402,7 +1463,7 @@ export class ApiService {
     status: PublicFacultyStatus;
     account: { id: string; email: string; facultyCode: string; isActive: boolean; lastLoginAt?: string };
   }> {
-    const res = await fetch(`${API_BASE_URL}/faculty/me`, {
+    const res = await fetch(`${getApiBaseUrl()}/faculty/me`, {
       headers: this.getFacultyAuthHeaders(),
     });
 
@@ -1419,7 +1480,7 @@ export class ApiService {
     locationPlaceId?: string;
     durationMinutes?: number;
   }): Promise<{ success: boolean; message: string; status: any; log: any }> {
-    const res = await fetch(`${API_BASE_URL}/faculty/me/status`, {
+    const res = await fetch(`${getApiBaseUrl()}/faculty/me/status`, {
       method: 'PATCH',
       headers: this.getFacultyAuthHeaders(),
       body: JSON.stringify(data),
@@ -1437,7 +1498,7 @@ export class ApiService {
     currentPassword: string,
     newPassword: string
   ): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE_URL}/faculty/me/change-password`, {
+    const res = await fetch(`${getApiBaseUrl()}/faculty/me/change-password`, {
       method: 'POST',
       headers: this.getFacultyAuthHeaders(),
       body: JSON.stringify({ currentPassword, newPassword }),
@@ -1456,12 +1517,15 @@ export class ApiService {
   }
 
   public static adminLogout(): void {
+    if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('campnav_admin_token');
+    }
     logoutAdmin();
   }
 
   // Admin Management & Audit (Requires Admin Auth)
   public static async getAdminFacultyAccounts(): Promise<{ success: boolean; accounts: any[] }> {
-    const res = await fetch(`${API_BASE_URL}/admin/faculty/accounts`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/accounts`, {
       headers: this.getAuthHeaders(),
     });
     if (!res.ok) {
@@ -1475,11 +1539,14 @@ export class ApiService {
     facultyId: string;
     email: string;
     facultyCode?: string;
-    password: string;
-  }): Promise<{ success: boolean; account: any }> {
-    const res = await fetch(`${API_BASE_URL}/admin/faculty/accounts`, {
+    password?: string;
+  }): Promise<{ success: boolean; temporaryPassword?: string; account: any }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/accounts`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
       body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -1489,13 +1556,47 @@ export class ApiService {
     return await res.json();
   }
 
+  public static async batchProvisionFacultyAccounts(
+    facultyList: { facultyId: string; email?: string; password?: string }[]
+  ): Promise<{
+    success: boolean;
+    message: string;
+    created: {
+      facultyId: string;
+      name: string;
+      designation: string;
+      department: string;
+      email: string;
+      loginId: string;
+      temporaryPassword?: string;
+    }[];
+    skipped: { facultyId: string; name?: string; reason: string }[];
+  }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/batch-provision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify({ facultyList }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to batch provision faculty accounts' }));
+      throw new Error(err.error || 'Failed to batch provision faculty accounts');
+    }
+    return await res.json();
+  }
+
   public static async toggleAdminFacultyAccountActive(
     accountId: string,
     isActive: boolean
   ): Promise<{ success: boolean; message: string; account: any }> {
-    const res = await fetch(`${API_BASE_URL}/admin/faculty/accounts/${encodeURIComponent(accountId)}/toggle-active`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/accounts/${encodeURIComponent(accountId)}/toggle-active`, {
       method: 'PATCH',
-      headers: this.getAuthHeaders(),
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
       body: JSON.stringify({ isActive }),
     });
     if (!res.ok) {
@@ -1507,16 +1608,42 @@ export class ApiService {
 
   public static async resetAdminFacultyAccountPassword(
     accountId: string,
-    newPassword: string
-  ): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE_URL}/admin/faculty/accounts/${encodeURIComponent(accountId)}/reset-password`, {
+    newPassword?: string
+  ): Promise<{ success: boolean; temporaryPassword?: string; message: string }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/accounts/${encodeURIComponent(accountId)}/reset-password`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify({ newPassword }),
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify(newPassword ? { newPassword } : {}),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to reset password' }));
       throw new Error(err.error || 'Failed to reset password');
+    }
+    return await res.json();
+  }
+
+  public static async scanPublicFacultyEmails(): Promise<{
+    success: boolean;
+    scannedCount: number;
+    suggestions: {
+      facultyId: string;
+      name: string;
+      department: string;
+      suggestedEmail: string;
+      sourceUrl: string;
+      isSuggestion: boolean;
+    }[];
+  }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/scan-public-emails`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to scan public faculty pages' }));
+      throw new Error(err.error || 'Failed to scan public faculty pages');
     }
     return await res.json();
   }
@@ -1530,7 +1657,7 @@ export class ApiService {
       durationMinutes?: number;
     }
   ): Promise<{ success: boolean; message: string; status: any; log: any }> {
-    const res = await fetch(`${API_BASE_URL}/admin/faculty/${encodeURIComponent(facultyId)}/override-status`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/${encodeURIComponent(facultyId)}/override-status`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(data),
@@ -1544,8 +1671,8 @@ export class ApiService {
 
   public static async getAdminFacultyStatusLogs(facultyId?: string): Promise<{ success: boolean; logs: any[] }> {
     const url = facultyId
-      ? `${API_BASE_URL}/admin/faculty/status-logs?facultyId=${encodeURIComponent(facultyId)}`
-      : `${API_BASE_URL}/admin/faculty/status-logs`;
+      ? `${getApiBaseUrl()}/admin/faculty/status-logs?facultyId=${encodeURIComponent(facultyId)}`
+      : `${getApiBaseUrl()}/admin/faculty/status-logs`;
     const res = await fetch(url, {
       headers: this.getAuthHeaders(),
     });
@@ -1565,7 +1692,7 @@ export class ApiService {
     transferEmergencyPin: boolean = false,
     notes?: string
   ): Promise<{ success: boolean; message: string; newOwner: string }> {
-    const res = await fetch(`${API_BASE_URL}/admin/transfer-ownership`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/transfer-ownership`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ targetUsername, transferEmergencyPin, notes }),
@@ -1581,7 +1708,7 @@ export class ApiService {
     id: string,
     updates: { username?: string; name?: string; email?: string; role?: string; password?: string }
   ): Promise<{ success: boolean; user: any; message: string }> {
-    const res = await fetch(`${API_BASE_URL}/admin/users/${id}/credentials`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/users/${id}/credentials`, {
       method: 'PATCH',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(updates),
@@ -1594,7 +1721,7 @@ export class ApiService {
   }
 
   public static async getSnapshots(): Promise<{ success: boolean; snapshots: DataSnapshot[] }> {
-    const res = await fetch(`${API_BASE_URL}/admin/snapshots`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/snapshots`, {
       headers: this.getAuthHeaders(),
     });
     if (!res.ok) {
@@ -1608,7 +1735,7 @@ export class ApiService {
     name: string,
     description?: string
   ): Promise<{ success: boolean; snapshot: DataSnapshot }> {
-    const res = await fetch(`${API_BASE_URL}/admin/snapshots`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/snapshots`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ name, description }),
@@ -1623,7 +1750,7 @@ export class ApiService {
   public static async rollbackSnapshot(
     id: string
   ): Promise<{ success: boolean; message: string; restoredCounts?: any }> {
-    const res = await fetch(`${API_BASE_URL}/admin/snapshots/${id}/rollback`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/snapshots/${id}/rollback`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
     });
@@ -1635,7 +1762,7 @@ export class ApiService {
   }
 
   public static async getSearchAliases(): Promise<{ success: boolean; aliases: SearchAlias[] }> {
-    const res = await fetch(`${API_BASE_URL}/admin/search/aliases`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/search/aliases`, {
       headers: this.getAuthHeaders(),
     });
     if (!res.ok) {
@@ -1651,7 +1778,7 @@ export class ApiService {
     targetType: string;
     label?: string;
   }): Promise<{ success: boolean; alias: SearchAlias }> {
-    const res = await fetch(`${API_BASE_URL}/admin/search/aliases`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/search/aliases`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(alias),
@@ -1664,7 +1791,7 @@ export class ApiService {
   }
 
   public static async deleteSearchAlias(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE_URL}/admin/search/aliases/${id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/search/aliases/${id}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -1676,7 +1803,7 @@ export class ApiService {
   }
 
   public static async getAdminAuditActions(limit: number = 100): Promise<{ success: boolean; actions: AdminAuditAction[] }> {
-    const res = await fetch(`${API_BASE_URL}/admin/audit-actions?limit=${limit}`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/audit-actions?limit=${limit}`, {
       headers: this.getAuthHeaders(),
     });
     if (!res.ok) {
@@ -1687,7 +1814,7 @@ export class ApiService {
   }
 
   public static async getSystemValidationReport(): Promise<{ success: boolean; report: SystemValidationReport }> {
-    const res = await fetch(`${API_BASE_URL}/admin/system/validate`, {
+    const res = await fetch(`${getApiBaseUrl()}/admin/system/validate`, {
       headers: this.getAuthHeaders(),
     });
     if (!res.ok) {

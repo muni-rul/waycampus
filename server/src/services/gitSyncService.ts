@@ -19,6 +19,10 @@ export interface GitSyncResult {
 class GitSyncService {
   private syncTimer: NodeJS.Timeout | null = null;
   private isSyncing = false;
+  private lastSyncTime: string | null = null;
+  private lastSyncSuccess: boolean | null = null;
+  private lastSyncMessage: string | null = null;
+  private lastCommitSha: string | null = null;
 
   public getToken(): string | null {
     return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null;
@@ -69,6 +73,8 @@ class GitSyncService {
       console.warn(
         '[Persistence] GITHUB_DATA_REPO/GITHUB_TOKEN not set: data is stored on local disk only and WILL BE LOST on restart/redeploy.'
       );
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = 'GitHub Data Sync not configured or GITHUB_DATA_REPO equals code repository. Using local disk persistence.';
       return {
         success: false,
         message: 'GitHub Data Sync not configured or GITHUB_DATA_REPO equals code repository. Using local disk persistence.',
@@ -81,6 +87,8 @@ class GitSyncService {
     const targetPath = remotePath || this.getDataPath();
 
     if (!fs.existsSync(localFilePath)) {
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = `Local file ${localFilePath} does not exist to sync.`;
       return {
         success: false,
         message: `Local file ${localFilePath} does not exist to sync.`,
@@ -109,7 +117,7 @@ class GitSyncService {
       // 1. Get existing file SHA if present
       let existingSha: string | undefined;
       try {
-        const getRes = await fetch(apiUrl, { headers });
+        const getRes = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(10000) });
         if (getRes.ok) {
           const getData = (await getRes.json()) as any;
           existingSha = getData.sha;
@@ -135,12 +143,16 @@ class GitSyncService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(putBody),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!putRes.ok) {
         const errJson = (await putRes.json().catch(() => ({}))) as any;
         const msg = errJson.message || `HTTP ${putRes.status} ${putRes.statusText}`;
         console.error('[GitSync] GitHub commit failed:', msg);
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = false;
+        this.lastSyncMessage = `GitHub commit failed: ${msg}`;
         return {
           success: false,
           message: `GitHub commit failed: ${msg}`,
@@ -152,6 +164,10 @@ class GitSyncService {
       const htmlUrl = resData?.commit?.html_url || '';
 
       console.log(`[GitSync] Successfully synced database to external data repository (${repo} @ ${branch}): ${commitSha.slice(0, 7)}`);
+      this.lastSyncTime = new Date().toISOString();
+      this.lastSyncSuccess = true;
+      this.lastSyncMessage = `Successfully synced database to data repository ${repo} (${branch})`;
+      this.lastCommitSha = commitSha;
       return {
         success: true,
         message: `Successfully synced database to data repository ${repo} (${branch})`,
@@ -160,6 +176,9 @@ class GitSyncService {
       };
     } catch (err: any) {
       console.error('[GitSync] Error during GitHub sync:', err.message);
+      this.lastSyncTime = new Date().toISOString();
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = err.message || 'GitHub sync error';
       return {
         success: false,
         message: err.message || 'GitHub sync error',
@@ -204,9 +223,12 @@ class GitSyncService {
         'User-Agent': 'CampusNav-Server-Sync/1.0',
       };
 
-      const res = await fetch(apiUrl, { headers });
+      const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(10000) });
       if (!res.ok) {
         console.warn(`[GitSync] Could not fetch remote database from GitHub (HTTP ${res.status}).`);
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = false;
+        this.lastSyncMessage = `Could not fetch remote database from GitHub (HTTP ${res.status})`;
         return null;
       }
 
@@ -217,11 +239,34 @@ class GitSyncService {
 
       const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
       console.log(`[GitSync] Successfully retrieved latest database from data repository (${repo} @ ${branch})`);
+      this.lastSyncTime = new Date().toISOString();
+      this.lastSyncSuccess = true;
+      this.lastSyncMessage = `Database restored from data repository ${repo} (${branch}) on startup`;
       return decoded;
     } catch (err: any) {
       console.warn('[GitSync] Error fetching remote database from GitHub:', err?.message);
+      this.lastSyncTime = new Date().toISOString();
+      this.lastSyncSuccess = false;
+      this.lastSyncMessage = `Error fetching remote database: ${err?.message || 'Network error'}`;
       return null;
     }
+  }
+
+  public getStatus() {
+    return {
+      configured: this.isConfigured(),
+      dataRepo: this.getDataRepo(),
+      branch: this.getDataBranch(),
+      lastSyncTime: this.lastSyncTime,
+      lastSyncSuccess: this.lastSyncSuccess,
+      lastSyncMessage:
+        this.lastSyncMessage ||
+        (this.isConfigured()
+          ? 'Ready. Auto-sync triggers on account changes.'
+          : 'GITHUB_DATA_REPO / GITHUB_TOKEN not configured on this server'),
+      lastCommitSha: this.lastCommitSha,
+      isSyncing: this.isSyncing,
+    };
   }
 }
 

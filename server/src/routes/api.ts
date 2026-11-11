@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { store } from '../db/store';
+import { gitSyncService } from '../services/gitSyncService';
 import { SearchService } from '../services/searchService';
 import { NavigationService } from '../services/navigationService';
 import { PanoramaService } from '../services/panoramaService';
@@ -15,6 +16,8 @@ import {
   requireFacultyAuth,
   verifyPassword,
   hashPassword,
+  isValidCollegeEmail,
+  generateSecureTempPassword,
 } from '../middleware/auth';
 import {
   VerificationStatus,
@@ -506,8 +509,12 @@ apiRouter.post('/faculty/me/change-password', requireFacultyAuth, facultyAuthLim
       return res.status(400).json({ error: 'Current password and new password are required.' });
     }
 
-    if (String(newPassword).length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    if (String(newPassword).length < 10) {
+      return res.status(400).json({ error: 'New password must be at least 10 characters.' });
+    }
+
+    if (String(currentPassword) === String(newPassword)) {
+      return res.status(400).json({ error: 'New password cannot be the same as your current temporary password.' });
     }
 
     const account = store.getFacultyAccountById(facultySession.accountId);
@@ -520,10 +527,10 @@ apiRouter.post('/faculty/me/change-password', requireFacultyAuth, facultyAuthLim
       return res.status(401).json({ error: 'Current password is incorrect.' });
     }
 
-    store.resetFacultyAccountPassword(account.id, String(newPassword), false);
+    store.resetFacultyAccountPassword(account.id, String(newPassword), false, `Faculty:${account.facultyId}`);
     res.json({ success: true, message: 'Password changed successfully.' });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to change password.' });
+    res.status(400).json({ error: err?.message || 'Failed to change password.' });
   }
 });
 
@@ -545,6 +552,7 @@ apiRouter.get('/admin/faculty/accounts', requireAdminAuth, (req: Request, res: R
         email: a.email,
         facultyCode: a.facultyCode,
         isActive: a.isActive,
+        mustChangePassword: Boolean(a.mustChangePassword),
         lastLoginAt: a.lastLoginAt,
         createdAt: a.createdAt,
         updatedAt: a.updatedAt,
@@ -566,21 +574,26 @@ apiRouter.post('/admin/faculty/accounts', requireAdminAuth, (req: Request, res: 
       return res.status(400).json({ error: 'facultyId and email are required.' });
     }
 
-    const finalPassword = password ? String(password).trim() : `Christ@${Math.floor(1000 + Math.random() * 9000)}`;
+    const caller = (req as any).user?.username || 'Admin';
+
+    if (!isValidCollegeEmail(email)) {
+      return res.status(400).json({ error: 'Email must be a valid @christcollegeijk.edu.in address.' });
+    }
 
     const account = store.createFacultyAccount({
       facultyId: String(facultyId).trim(),
-      email: String(email).trim(),
+      email: String(email).trim().toLowerCase(),
       facultyCode: facultyCode ? String(facultyCode).trim() : undefined,
-      password: finalPassword,
+      password: password ? String(password).trim() : undefined,
       mustChangePassword: true,
+      performedBy: caller,
     });
 
     const teacher = store.getTeachers().find((t) => t.id === account.facultyId || t.facultyId === account.facultyId);
 
     res.status(201).json({
       success: true,
-      temporaryPassword: finalPassword,
+      temporaryPassword: account.temporaryPassword,
       account: {
         id: account.id,
         facultyId: account.facultyId,
@@ -589,7 +602,6 @@ apiRouter.post('/admin/faculty/accounts', requireAdminAuth, (req: Request, res: 
         facultyCode: account.facultyCode,
         isActive: account.isActive,
         mustChangePassword: account.mustChangePassword,
-        temporaryPassword: finalPassword,
         createdAt: account.createdAt,
       },
     });
@@ -605,24 +617,74 @@ apiRouter.post('/admin/faculty/batch-provision', requireAdminAuth, (req: Request
       return res.status(400).json({ error: 'facultyList array is required.' });
     }
 
+    const caller = (req as any).user?.username || 'Admin';
     const created: any[] = [];
     const skipped: any[] = [];
 
-    facultyList.forEach((item: { facultyId: string; email: string; password?: string }) => {
+    const batchEmails = new Map<string, string>();
+
+    facultyList.forEach((item: { facultyId: string; email?: string; password?: string }) => {
       try {
-        const tempPass = item.password || `Christ@${Math.floor(1000 + Math.random() * 9000)}`;
+        if (!item.facultyId) {
+          skipped.push({ facultyId: 'unknown', reason: 'facultyId is required' });
+          return;
+        }
+
+        const teacher = store.getTeachers().find(
+          (t) => t.id === item.facultyId || t.facultyId === item.facultyId
+        );
+        if (!teacher) {
+          skipped.push({ facultyId: item.facultyId, reason: 'Faculty record not found' });
+          return;
+        }
+
+        const rawEmail = (item.email || teacher.officialEmail || '').trim().toLowerCase();
+        if (!rawEmail) {
+          skipped.push({ facultyId: item.facultyId, name: teacher.name, reason: 'Missing college email' });
+          return;
+        }
+
+        if (!isValidCollegeEmail(rawEmail)) {
+          skipped.push({
+            facultyId: item.facultyId,
+            name: teacher.name,
+            reason: 'Invalid email domain or format (must be @christcollegeijk.edu.in)',
+          });
+          return;
+        }
+
+        if (batchEmails.has(rawEmail)) {
+          skipped.push({
+            facultyId: item.facultyId,
+            name: teacher.name,
+            reason: `Duplicate email "${rawEmail}" in request`,
+          });
+          return;
+        }
+        batchEmails.set(rawEmail, item.facultyId);
+
+        const existingAcc = store.getFacultyAccountByFacultyId(item.facultyId);
+        if (existingAcc) {
+          skipped.push({ facultyId: item.facultyId, name: teacher.name, reason: 'Account already exists' });
+          return;
+        }
+
         const account = store.createFacultyAccount({
           facultyId: item.facultyId,
-          email: item.email,
-          password: tempPass,
+          email: rawEmail,
+          password: item.password,
           mustChangePassword: true,
+          performedBy: caller,
         });
-        const teacher = store.getTeachers().find((t) => t.id === account.facultyId || t.facultyId === account.facultyId);
+
         created.push({
           facultyId: account.facultyId,
-          name: teacher?.name || 'Faculty Member',
+          name: teacher.name,
+          designation: teacher.designation || 'Faculty Member',
+          department: teacher.departmentName || teacher.departmentCategory || '',
           email: account.email,
-          temporaryPassword: tempPass,
+          loginId: account.facultyCode || account.facultyId,
+          temporaryPassword: account.temporaryPassword,
         });
       } catch (e: any) {
         skipped.push({ facultyId: item.facultyId, reason: e.message });
@@ -644,12 +706,13 @@ apiRouter.patch('/admin/faculty/accounts/:id/toggle-active', requireAdminAuth, (
   try {
     const { id } = req.params;
     const { isActive } = req.body;
+    const caller = (req as any).user?.username || 'Admin';
 
     if (typeof isActive !== 'boolean') {
       return res.status(400).json({ error: '"isActive" boolean field is required.' });
     }
 
-    const updated = store.toggleFacultyAccountActive(id, isActive);
+    const updated = store.toggleFacultyAccountActive(id, isActive, caller);
     if (!updated) {
       return res.status(404).json({ error: 'Faculty account not found.' });
     }
@@ -667,21 +730,186 @@ apiRouter.patch('/admin/faculty/accounts/:id/toggle-active', requireAdminAuth, (
 apiRouter.post('/admin/faculty/accounts/:id/reset-password', requireAdminAuth, (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { newPassword } = req.body;
+    const { newPassword } = req.body || {};
+    const caller = (req as any).user?.username || 'Admin';
 
-    if (!newPassword || String(newPassword).length < 6) {
-      return res.status(400).json({ error: 'newPassword must be at least 6 characters.' });
+    if (newPassword && String(newPassword).length < 10) {
+      return res.status(400).json({ error: 'newPassword must be at least 10 characters.' });
     }
 
-    const updated = store.resetFacultyAccountPassword(id, String(newPassword));
-    if (!updated) {
+    const result = store.resetFacultyAccountPassword(
+      id,
+      newPassword ? String(newPassword) : undefined,
+      true,
+      caller
+    );
+    if (!result) {
       return res.status(404).json({ error: 'Faculty account not found.' });
     }
 
-    res.json({ success: true, message: 'Faculty password reset successfully.' });
+    res.json({
+      success: true,
+      temporaryPassword: result.temporaryPassword,
+      message: 'Faculty password reset successfully.',
+    });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to reset password.' });
+    res.status(400).json({ error: err?.message || 'Failed to reset password.' });
   }
+});
+
+/**
+ * Validates that a target URL for public email scanning points strictly to an HTTPS
+ * endpoint on christcollegeijk.edu.in (or subdomain) and blocks any internal or loopback SSRF attempts.
+ */
+export function isSafeChristCollegeUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname !== 'christcollegeijk.edu.in' && !hostname.endsWith('.christcollegeijk.edu.in')) {
+      return false;
+    }
+    // Block IP addresses, localhost, and non-FQDN hostnames (SSRF defense)
+    if (
+      hostname === 'localhost' ||
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) ||
+      hostname.includes(':') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal')
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Safely fetches a public Christ College faculty webpage with SSRF prevention,
+ * strict HTTPS & domain boundary validation on all redirects (max 2), 5s timeout, and 1MB size cap.
+ */
+async function fetchSafePublicFacultyPage(url: string, maxRedirects: number = 2): Promise<string | null> {
+  let currentUrl = url;
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+    if (!isSafeChristCollegeUrl(currentUrl)) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const pageRes = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': 'CampusNav-Scan/1.0 (Christ College Faculty Verification)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+      clearTimeout(timeout);
+
+      // Enforce domain check on redirects
+      if ([301, 302, 303, 307, 308].includes(pageRes.status)) {
+        const location = pageRes.headers.get('location');
+        if (!location) return null;
+        const nextUrl = new URL(location, currentUrl).toString();
+        if (!isSafeChristCollegeUrl(nextUrl)) return null;
+        currentUrl = nextUrl;
+        continue;
+      }
+
+      if (!pageRes.ok) return null;
+
+      // Cap response size to 1MB (1,048,576 bytes)
+      const reader = pageRes.body?.getReader();
+      if (!reader) {
+        const text = await pageRes.text();
+        return text.slice(0, 1024 * 1024);
+      }
+
+      let receivedBytes = 0;
+      const chunks: Uint8Array[] = [];
+      const MAX_BYTES = 1024 * 1024;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          receivedBytes += value.length;
+          chunks.push(value);
+          if (receivedBytes >= MAX_BYTES) {
+            reader.cancel();
+            break;
+          }
+        }
+      }
+
+      const totalBuffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+      return totalBuffer.toString('utf-8', 0, MAX_BYTES);
+    } catch {
+      clearTimeout(timeout);
+      return null;
+    }
+  }
+  return null;
+}
+
+apiRouter.post('/admin/faculty/scan-public-emails', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const teachers = store.getTeachers();
+    const missing = teachers.filter((t) => !t.officialEmail && (t.profileLink || t.sourceUrl || (t as any).profileUrl));
+    const suggestions: any[] = [];
+    const emailRegex = /[a-zA-Z0-9._%+-]+@christcollegeijk\.edu\.in/gi;
+
+    // Scan up to 20 profiles at a time with concurrency capped at 5
+    const batch = missing.slice(0, 20);
+    const CONCURRENCY = 5;
+
+    for (let i = 0; i < batch.length; i += CONCURRENCY) {
+      const chunk = batch.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (item) => {
+          const rawUrl = item.profileLink || item.sourceUrl || (item as any).profileUrl;
+          if (!rawUrl || typeof rawUrl !== 'string') return;
+          try {
+            const html = await fetchSafePublicFacultyPage(rawUrl.trim());
+            if (html) {
+              const matches = html.match(emailRegex);
+              if (matches && matches.length > 0) {
+                const cleanEmail = matches[0].trim().toLowerCase();
+                suggestions.push({
+                  facultyId: item.id,
+                  name: item.name,
+                  department: item.departmentName || item.department || '',
+                  suggestedEmail: cleanEmail,
+                  sourceUrl: rawUrl,
+                  isSuggestion: true,
+                });
+              }
+            }
+          } catch {}
+        })
+      );
+    }
+
+    res.json({
+      success: true,
+      scannedCount: batch.length,
+      suggestions,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to scan public faculty pages.' });
+  }
+});
+
+// Cloud Git Sync Persistence Status (Control Center Header)
+apiRouter.get('/admin/persistence/status', requireAdminAuth, (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: gitSyncService.getStatus(),
+  });
 });
 
 apiRouter.post('/admin/faculty/:facultyId/override-status', requireAdminAuth, (req: Request, res: Response) => {
@@ -1085,7 +1313,8 @@ apiRouter.post('/admin/teachers/bulk', requireAdminAuth, (req: Request, res: Res
       floorName: Number(item.floorNumber) === 0 ? 'Ground Floor' : `Floor ${item.floorNumber ?? 1}`,
       roomId: item.roomId || 'rm_101',
       roomNumber: String(item.roomNumber || item.cabin || '108'),
-      email: item.email || `${cleanName.toLowerCase().replace(/\s+/g, '.')}@christcollegeijk.edu.in`,
+      email: item.email ? String(item.email).trim() : '',
+      officialEmail: item.officialEmail ? String(item.officialEmail).trim() : (item.email ? String(item.email).trim() : undefined),
       phone: item.phone || '+91 480 2825258',
       officeHours: item.officeHours || 'Mon - Fri: 10:00 AM - 4:00 PM',
       searchAliases: [
@@ -1096,7 +1325,7 @@ apiRouter.post('/admin/teachers/bulk', requireAdminAuth, (req: Request, res: Res
         `${honorific} ${cleanName}`,
         `${dept?.name || ''} ${cleanName}`,
       ],
-      verifiedStatus: 'VERIFIED' as VerificationStatus,
+      verifiedStatus: (item.officialEmail || item.email) ? ('VERIFIED' as VerificationStatus) : ('UNVERIFIED' as VerificationStatus),
       lastVerifiedDate: new Date().toISOString().split('T')[0],
     };
   });
@@ -2393,25 +2622,10 @@ apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, re
 apiRouter.get('/publish/export-db', requireAdminAuth, (req: Request, res: Response) => {
   try {
     store.persist(true);
-    const possiblePaths = [
-      path.resolve(process.cwd(), 'server/data/campusnav_db.json'),
-      path.resolve(process.cwd(), 'data/campusnav_db.json'),
-      path.resolve(__dirname, '../../data/campusnav_db.json'),
-    ];
-    let filePath = '';
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        filePath = p;
-        break;
-      }
-    }
-    if (!filePath) {
-      return res.status(404).json({ error: 'Database file not found on disk.' });
-    }
+    const dbPayload = store.exportDatabasePayload();
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="campusnav_db_backup.json"');
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.send(JSON.stringify(dbPayload, null, 2));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to export database' });
   }

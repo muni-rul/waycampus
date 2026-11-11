@@ -11,6 +11,7 @@ import { OverviewSection } from './sections/OverviewSection';
 import { CampusSection } from './sections/CampusSection';
 import { TagsPlacesSection } from './sections/TagsPlacesSection';
 import { FacultyDetailsSection } from './sections/FacultyDetailsSection';
+import { FacultyCredentialsSection } from './sections/FacultyCredentialsSection';
 import { PanoramasSection } from './sections/PanoramasSection';
 import { PublishSection } from './sections/PublishSection';
 
@@ -396,6 +397,8 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
           {activeSection === 'tags' && <TagsPlacesSection />}
 
           {activeSection === 'faculty' && <FacultyDetailsSection onRefresh={() => {}} />}
+
+          {activeSection === 'credentials' && <FacultyCredentialsSection />}
 
           {activeSection === 'panoramas' && (
             <PanoramasSection

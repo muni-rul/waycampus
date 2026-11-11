@@ -11,6 +11,7 @@ import {
   Layers,
   Calendar,
   Users,
+  KeyRound,
 } from 'lucide-react';
 import { ControlCenterSectionId } from './ControlCenterSidebar';
 import { CAMPUS_GRAPH } from '../../data/campusGraph';
@@ -57,6 +58,7 @@ export const ControlCenterCommandPalette: React.FC<ControlCenterCommandPalettePr
     { id: 'sec_campus', title: 'Rooms, Classes & Blocks', subtitle: 'Manage buildings, classrooms, labs and departments', category: 'Campus Data', icon: Building2, section: 'campus' },
     { id: 'sec_tags', title: 'Tags & Places', subtitle: 'Manage physical waypoints and 3D street view tags', category: 'Campus Data', icon: MapPin, section: 'tags' },
     { id: 'sec_faculty', title: 'Faculty Details', subtitle: 'Manage 277 faculty members, departments, and physical campus destinations', category: 'Campus Data', icon: Users, section: 'faculty' },
+    { id: 'sec_credentials', title: 'Faculty Credentials', subtitle: 'Manage faculty login accounts, verified college emails, and temporary passwords', category: 'Campus Data', icon: KeyRound, section: 'credentials' },
     { id: 'sec_panoramas', title: 'Edit Connections', subtitle: 'Manage 360° panorama images, location tags and navigation arrows', category: 'Campus Data', icon: Camera, section: 'panoramas' },
     { id: 'cmd_events', title: 'Campus Events & Calendar', subtitle: 'Schedule, add, edit and manage upcoming campus events', category: 'Events', icon: Calendar, section: 'overview', metadata: { openEvents: true } },
     { id: 'sec_publish', title: 'Publish', subtitle: 'Deploy validated updates to production & database backup', category: 'Publish', icon: UploadCloud, section: 'publish' },
