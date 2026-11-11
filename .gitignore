@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production Build Outputs (Built automatically in the cloud on deploy)
+client/dist/
+server/dist/
+
+# Environment variables & secrets
+.env
+.env*
+!.env.example
+*.pem
+*.key
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs & temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+scratch/
+
+# Android & Mobile Build Artifacts
+*.apk
+.gradle/
+
+# Generated Panorama Multi-Resolution Tiles (Local/CDN cache)
+client/public/panorama-tiles/
+
+# Reference materials
+*.pdf
+
+# Server DB snapshots & live databases (seed file preserved)
+server/data/snapshots/
+server/data/*.json
+!server/data/campusnav_db.seed.json
+
+# Faculty credential files & exports (Prevent accidental credential commits)
+*PASSWORD*
+*.csv
+!faculty_credentials_template.example.csv
+*.xlsx

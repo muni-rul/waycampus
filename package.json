@@ -1,0 +1,30 @@
+{
+  "name": "campusnav",
+  "version": "1.0.0",
+  "description": "CampusNav — Production-Ready 3D College Navigation Platform",
+  "scripts": {
+    "dev": "npm run dev:client",
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build:client": "cd client && npm install --include=dev && npm run build",
+    "build:server": "cd server && npm install --include=dev && npm run build",
+    "build": "npm run build:client && npm run build:server",
+    "generate:tiles": "node scripts/generatePanoramaTiles.js",
+    "start": "cd server && npm start"
+  },
+  "keywords": [
+    "campus-navigation",
+    "indoor-navigation",
+    "threejs",
+    "a-star",
+    "christ-college"
+  ],
+  "author": "CampusNav Team",
+  "license": "ISC",
+  "dependencies": {
+    "@types/qrcode": "^1.5.6",
+    "express-rate-limit": "^8.7.3",
+    "helmet": "^8.3.0",
+    "qrcode": "^1.5.4"
+  }
+}

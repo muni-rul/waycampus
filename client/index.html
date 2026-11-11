@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/waycampus.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="application-name" content="WayCampus" />
+    <meta name="apple-mobile-web-app-title" content="WayCampus" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="description" content="WayCampus — Campus navigation for Christ College. Navigate classrooms, departments, faculty, and facilities with 360° views." />
+    <meta name="keywords" content="WayCampus, Way Campus, Christ College Irinjalakuda, Christ College campus navigation, Christ College 360 tour, Christ College WayCampus" />
+    <meta name="robots" content="index, follow" />
+    <meta name="google-site-verification" content="fT3du9YueyAqLuNkyjqqj8Ytu7CBTaQ_VDp6PwA8EcM" />
+    <link rel="canonical" href="https://campnav-b3om.onrender.com/" />
+    <!-- Open Graph / Social Sharing Meta -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WayCampus — Campus navigation for Christ College" />
+    <meta property="og:description" content="Campus navigation for Christ College. 360° Street View and interactive campus map." />
+    <meta property="og:url" content="https://campnav-b3om.onrender.com/" />
+    <meta property="og:site_name" content="WayCampus" />
+    <meta property="og:image" content="https://campnav-b3om.onrender.com/assets/campus_splash_background.jpg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" as="image" href="/assets/campus_splash_background.jpg" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <title>WayCampus — Campus navigation for Christ College</title>
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        overscroll-behavior: none;
+        position: fixed;
+        inset: 0;
+        background: #020617;
+        color: #0f172a;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        background: #020617;
+      }
+      .pt-safe { padding-top: max(env(safe-area-inset-top, 0px), 8px); }
+      .pb-safe { padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px); }
+      .pl-safe { padding-left: max(env(safe-area-inset-left, 0px), 8px); }
+      .pr-safe { padding-right: max(env(safe-area-inset-right, 0px), 8px); }
+      .safe-area-bottom { padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px); }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

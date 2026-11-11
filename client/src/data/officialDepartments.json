@@ -1,0 +1,727 @@
+[
+  {
+    "id": "dept_botany_aided",
+    "campusId": "campus_christ_main",
+    "name": "Botany Department",
+    "code": "BOTANY_AIDED",
+    "category": "Botany",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sm_243_1788885852619",
+    "placeName": "DEPARTMENT OF BOTANY",
+    "nodeId": "sm_243",
+    "buildingName": "St. Mary Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 1
+  },
+  {
+    "id": "dept_chemistry_aided",
+    "campusId": "campus_christ_main",
+    "name": "Chemistry Department",
+    "code": "CHEMISTRY_AIDED",
+    "category": "Chemistry",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mt_115_1788792474140",
+    "placeName": "DEPARTMENT OF CHEMISTRY",
+    "nodeId": "mt_115",
+    "buildingName": "Mother Teresa Block",
+    "floorName": "First Floor",
+    "facultyCount": 10,
+    "candidates": [
+      {
+        "tagId": "tag_mt_115_1788792474140",
+        "tagName": "DEPARTMENT OF CHEMISTRY",
+        "nodeId": "mt_115"
+      },
+      {
+        "tagId": "tag_mt_116_1788792676322",
+        "tagName": "HEAD OF CHEMISTRY DEPARTMENT",
+        "nodeId": "mt_116"
+      },
+      {
+        "tagId": "tag_mt_121_1788792983860",
+        "tagName": "DEPARTMENT OF CHEMISTRY (UNAIDED)",
+        "nodeId": "mt_121"
+      }
+    ]
+  },
+  {
+    "id": "dept_commerce_aided",
+    "campusId": "campus_christ_main",
+    "name": "Commerce Department",
+    "code": "COMMERCE_AIDED",
+    "category": "Commerce",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mg_287_1788881160979",
+    "placeName": "DEPARTMENT OF COMMERCE",
+    "nodeId": "mg_287",
+    "buildingName": "Mariam Goretti Block",
+    "floorName": "First Floor",
+    "facultyCount": 8,
+    "candidates": [
+      {
+        "tagId": "tag_mg_287_1788881160979",
+        "tagName": "DEPARTMENT OF COMMERCE",
+        "nodeId": "mg_287"
+      },
+      {
+        "tagId": "tag_sm_248_1788885153988",
+        "tagName": "DEPARTMENT OF COMMERCE",
+        "nodeId": "sm_248"
+      }
+    ]
+  },
+  {
+    "id": "dept_economics_aided",
+    "campusId": "campus_christ_main",
+    "name": "Economics Department",
+    "code": "ECONOMICS_AIDED",
+    "category": "Economics",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_bba_374_1788975523708",
+    "placeName": "DEPARTMENT OF ECONOMICS",
+    "nodeId": "bba_374",
+    "buildingName": "BBA Block",
+    "floorName": "First Floor",
+    "facultyCount": 5,
+    "notes": "Existing tag is DEPARTMENT OF ECONOMICS (UNAIDED). Aided Economics tag required."
+  },
+  {
+    "id": "dept_english_aided",
+    "campusId": "campus_christ_main",
+    "name": "English Department",
+    "code": "ENGLISH_AIDED",
+    "category": "English",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mg_295_1788883494642",
+    "placeName": "DEPARTMENT OF ENGLISH",
+    "nodeId": "mg_295",
+    "buildingName": "Mariam Goretti Block",
+    "floorName": "Second Floor",
+    "facultyCount": 8,
+    "candidates": [
+      {
+        "tagId": "tag_mg_295_1788883494642",
+        "tagName": "DEPARTMENT OF ENGLISH",
+        "nodeId": "mg_295"
+      },
+      {
+        "tagId": "tag_bba_374_1788975488266",
+        "tagName": "DEPARTMENT OF ENGLISH & HISTORY (UNAIDED)",
+        "nodeId": "bba_374"
+      }
+    ]
+  },
+  {
+    "id": "dept_geology_aided",
+    "campusId": "campus_christ_main",
+    "name": "Geology & Environmental Science Department",
+    "code": "GEOLOGY_AIDED",
+    "category": "Geology & Environmental Science",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mt_110_1788791759675",
+    "placeName": "DEPARTMENT OF GEOLOGY AND ENVIRONMENTAL SCIENCE",
+    "nodeId": "mt_110",
+    "buildingName": "Mother Teresa Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 13
+  },
+  {
+    "id": "dept_hindi_aided",
+    "campusId": "campus_christ_main",
+    "name": "Hindi Department",
+    "code": "HINDI_AIDED",
+    "category": "Hindi",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_069_1788707624312",
+    "placeName": "DEPARTMENT OF HINDI",
+    "nodeId": "ab_069",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_history_aided",
+    "campusId": "campus_christ_main",
+    "name": "History Department",
+    "code": "HISTORY_AIDED",
+    "category": "History",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sj_195_1788877938931",
+    "placeName": "DEPARTMENT OF HISTORY",
+    "nodeId": "sj_195",
+    "buildingName": "St. Joseph Block",
+    "floorName": "First Floor",
+    "facultyCount": 6,
+    "candidates": [
+      {
+        "tagId": "tag_sj_170_1788877220915",
+        "tagName": "CENTRE FOR RESEARCH / DEPARTMENT OF HISTORY",
+        "nodeId": "sj_170"
+      },
+      {
+        "tagId": "tag_sj_195_1788877938931",
+        "tagName": "DEPARTMENT OF HISTORY",
+        "nodeId": "sj_195"
+      },
+      {
+        "tagId": "tag_bba_374_1788975488266",
+        "tagName": "DEPARTMENT OF ENGLISH & HISTORY (UNAIDED)",
+        "nodeId": "bba_374"
+      }
+    ]
+  },
+  {
+    "id": "dept_malayalam_aided",
+    "campusId": "campus_christ_main",
+    "name": "Malayalam Department",
+    "code": "MALAYALAM_AIDED",
+    "category": "Malayalam",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mg_292_1788881519667",
+    "placeName": "DEPARTMENT OF MALAYALAM",
+    "nodeId": "mg_292",
+    "buildingName": "Mariam Goretti Block",
+    "floorName": "Second Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_math_aided",
+    "campusId": "campus_christ_main",
+    "name": "Mathematics Department",
+    "code": "MATH_AIDED",
+    "category": "Mathematics",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_068_1788707571821",
+    "placeName": "DEPARTMENT OF MATHEMATICS",
+    "nodeId": "ab_068",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 7,
+    "candidates": [
+      {
+        "tagId": "tag_ab_068_1788707571821",
+        "tagName": "DEPARTMENT OF MATHEMATICS",
+        "nodeId": "ab_068"
+      },
+      {
+        "tagId": "tag_ab_069_1788707743342",
+        "tagName": "DEPARTMENT OF MATHEMATICS SELF FINANCE",
+        "nodeId": "ab_069"
+      }
+    ]
+  },
+  {
+    "id": "dept_phy_edu_aided",
+    "campusId": "campus_christ_main",
+    "name": "Physical Education Department",
+    "code": "PHY_EDU_AIDED",
+    "category": "Physical Education",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_049_1788708480499",
+    "placeName": "DEPARTMENT OF PHYSICAL EDUCATION",
+    "nodeId": "ab_049",
+    "buildingName": "Administrative Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 3
+  },
+  {
+    "id": "dept_bpe_aided",
+    "campusId": "campus_christ_main",
+    "name": "Bachelor of Physical Education Department",
+    "code": "BPE_AIDED",
+    "category": "Physical Education",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_gb_352_1789054199492",
+    "placeName": "MPES ROOM",
+    "nodeId": "gb_352",
+    "buildingName": "General Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 14
+  },
+  {
+    "id": "dept_physics_aided",
+    "campusId": "campus_christ_main",
+    "name": "Physics Department",
+    "code": "PHYSICS_AIDED",
+    "category": "Physics",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_047_1788704499571",
+    "placeName": "DEPARTMENT OF PHYSICS",
+    "nodeId": "ab_047",
+    "buildingName": "Administrative Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 11,
+    "candidates": [
+      {
+        "tagId": "tag_ab_047_1788704499571",
+        "tagName": "DEPARTMENT OF PHYSICS",
+        "nodeId": "ab_047"
+      },
+      {
+        "tagId": "tag_ab_047_1788703661120",
+        "tagName": "HEAD DEPARTMENT OF PHYSICS",
+        "nodeId": "ab_047"
+      },
+      {
+        "tagId": "tag_sc_224_1788850978509",
+        "tagName": "DEPARTMENT OF PHYSICS",
+        "nodeId": "sc_224"
+      }
+    ]
+  },
+  {
+    "id": "dept_sanskrit_aided",
+    "campusId": "campus_christ_main",
+    "name": "Sanskrit Department",
+    "code": "SANSKRIT_AIDED",
+    "category": "Sanskrit",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_069_1788707624312",
+    "placeName": "DEPARTMENT OF SANSKRIT",
+    "nodeId": "ab_069",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_stats_aided",
+    "campusId": "campus_christ_main",
+    "name": "Statistics Department",
+    "code": "STATS_AIDED",
+    "category": "Statistics",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_081_1788708480499",
+    "placeName": "DEPARTMENT OF STATISTIC",
+    "nodeId": "ab_081",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_zoology_aided",
+    "campusId": "campus_christ_main",
+    "name": "Zoology Department",
+    "code": "ZOOLOGY_AIDED",
+    "category": "Zoology",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sj_175_1788878216422",
+    "placeName": "DEPARTMENT OF ZOOLOGY (AIDDED)",
+    "nodeId": "sj_175",
+    "buildingName": "St. Joseph Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 6,
+    "candidates": [
+      {
+        "tagId": "tag_sj_175_1788878216422",
+        "tagName": "DEPARTMENT OF ZOOLOGY (AIDDED)",
+        "nodeId": "sj_175"
+      },
+      {
+        "tagId": "tag_sj_174_1788878258189",
+        "tagName": "HEAD DEPARTMENT OF ZOOLOGY",
+        "nodeId": "sj_174"
+      }
+    ]
+  },
+  {
+    "id": "dept_admin_principal",
+    "campusId": "campus_christ_main",
+    "name": "Administration (Principal)",
+    "code": "ADMIN_PRINCIPAL",
+    "category": "Administration",
+    "departmentType": "AIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_063_1788707373982",
+    "placeName": "PRINCIPAL OFFICE",
+    "nodeId": "ab_063",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 1,
+    "candidates": [
+      {
+        "tagId": "tag_ab_062_1788707110956",
+        "tagName": "PRINCIPAL OFFICE",
+        "nodeId": "ab_062"
+      },
+      {
+        "tagId": "tag_ab_063_1788707373982",
+        "tagName": "PRINCIPAL OFFICE",
+        "nodeId": "ab_063"
+      }
+    ]
+  },
+  {
+    "id": "dept_botany_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Botany Department (Unaided)",
+    "code": "BOTANY_UNAIDED",
+    "category": "Botany",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sm_243_1788885852619",
+    "placeName": "DEPARTMENT OF BOTANY",
+    "nodeId": "sm_243",
+    "buildingName": "St. Mary Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 4
+  },
+  {
+    "id": "dept_chemistry_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Chemistry Department (Unaided)",
+    "code": "CHEMISTRY_UNAIDED",
+    "category": "Chemistry",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mt_121_1788792983860",
+    "placeName": "DEPARTMENT OF CHEMISTRY (UNAIDED)",
+    "nodeId": "mt_121",
+    "buildingName": "Mother Teresa Block",
+    "floorName": "First Floor",
+    "facultyCount": 6
+  },
+  {
+    "id": "dept_commerce_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Commerce Department (Unaided)",
+    "code": "COMMERCE_UNAIDED",
+    "category": "Commerce",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sm_248_1788885153988",
+    "placeName": "DEPARTMENT OF COMMERCE",
+    "nodeId": "sm_248",
+    "buildingName": "St. Mary Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 17,
+    "candidates": [
+      {
+        "tagId": "tag_mg_287_1788881160979",
+        "tagName": "DEPARTMENT OF COMMERCE",
+        "nodeId": "mg_287"
+      },
+      {
+        "tagId": "tag_sm_248_1788885153988",
+        "tagName": "DEPARTMENT OF COMMERCE",
+        "nodeId": "sm_248"
+      }
+    ]
+  },
+  {
+    "id": "dept_cs_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Computer Science Department",
+    "code": "CS_UNAIDED",
+    "category": "Computer Science",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sc_207_1788801022193",
+    "placeName": "DEPARTMENT OF COMPUTER SCIENCE",
+    "nodeId": "sc_207",
+    "buildingName": "South Campus Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 20
+  },
+  {
+    "id": "dept_economics_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Economics Department (Unaided)",
+    "code": "ECONOMICS_UNAIDED",
+    "category": "Economics",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_bba_374_1788975523708",
+    "placeName": "DEPARTMENT OF ECONOMICS (UNAIDED)",
+    "nodeId": "bba_374",
+    "buildingName": "BBA Block",
+    "floorName": "First Floor",
+    "facultyCount": 4
+  },
+  {
+    "id": "dept_english_unaided",
+    "campusId": "campus_christ_main",
+    "name": "English Department (Unaided)",
+    "code": "ENGLISH_UNAIDED",
+    "category": "English",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_bba_374_1788975488266",
+    "placeName": "DEPARTMENT OF ENGLISH & HISTORY (UNAIDED)",
+    "nodeId": "bba_374",
+    "buildingName": "BBA Block",
+    "floorName": "First Floor",
+    "facultyCount": 20,
+    "candidates": [
+      {
+        "tagId": "tag_mg_295_1788883494642",
+        "tagName": "DEPARTMENT OF ENGLISH",
+        "nodeId": "mg_295"
+      },
+      {
+        "tagId": "tag_bba_374_1788975488266",
+        "tagName": "DEPARTMENT OF ENGLISH & HISTORY (UNAIDED)",
+        "nodeId": "bba_374"
+      }
+    ]
+  },
+  {
+    "id": "dept_eng_hist_unaided",
+    "campusId": "campus_christ_main",
+    "name": "English & History Double Main Department",
+    "code": "ENG_HIST_UNAIDED",
+    "category": "English & History",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_bba_374_1788975488266",
+    "placeName": "DEPARTMENT OF ENGLISH & HISTORY (UNAIDED)",
+    "nodeId": "bba_374",
+    "buildingName": "BBA Block",
+    "floorName": "First Floor",
+    "facultyCount": 4
+  },
+  {
+    "id": "dept_food_tech_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Food Technology Department",
+    "code": "FOOD_TECH_UNAIDED",
+    "category": "Food Technology",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_hm_472_1788886255937",
+    "placeName": "DEPARTMENT OF FOOD TECHNOLOGY",
+    "nodeId": "hm_472",
+    "buildingName": "Hotel Management Block",
+    "floorName": "First Floor",
+    "facultyCount": 3
+  },
+  {
+    "id": "dept_french_unaided",
+    "campusId": "campus_christ_main",
+    "name": "French Department",
+    "code": "FRENCH_UNAIDED",
+    "category": "French",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_hm_472_1788886145550",
+    "placeName": "DEPARTMENT OF FRENCH",
+    "nodeId": "hm_472",
+    "buildingName": "Hotel Management Block",
+    "floorName": "First Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_geology_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Geology Department (Unaided)",
+    "code": "GEOLOGY_UNAIDED",
+    "category": "Geology",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mt_110_1788791759675",
+    "placeName": "DEPARTMENT OF GEOLOGY AND ENVIRONMENTAL SCIENCE",
+    "nodeId": "mt_110",
+    "buildingName": "Mother Teresa Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 5
+  },
+  {
+    "id": "dept_german_unaided",
+    "campusId": "campus_christ_main",
+    "name": "German Department",
+    "code": "GERMAN_UNAIDED",
+    "category": "German",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_069_1788707624312",
+    "placeName": "LANGUAGES FACULTY CABIN (GERMAN)",
+    "nodeId": "ab_069",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 2
+  },
+  {
+    "id": "dept_hindi_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Hindi Department (Unaided)",
+    "code": "HINDI_UNAIDED",
+    "category": "Hindi",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_069_1788707624312",
+    "placeName": "DEPARTMENT OF HINDI (UNAIDED)",
+    "nodeId": "ab_069",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 5
+  },
+  {
+    "id": "dept_hm_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Hotel Management and Catering Sciences Department",
+    "code": "HM_UNAIDED",
+    "category": "Hotel Management",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "place_hotel_mgmt_entrance",
+    "placeName": "DEPARTMENT OF HOTEL MANAGEMENT",
+    "nodeId": "hm_465",
+    "buildingName": "Hotel Management Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 4
+  },
+  {
+    "id": "dept_malayalam_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Malayalam Department (Unaided)",
+    "code": "MALAYALAM_UNAIDED",
+    "category": "Malayalam",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mg_292_1788881519667",
+    "placeName": "DEPARTMENT OF MALAYALAM",
+    "nodeId": "mg_292",
+    "buildingName": "Mariam Goretti Block",
+    "floorName": "Second Floor",
+    "facultyCount": 6
+  },
+  {
+    "id": "dept_management_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Management Studies Department (BBA)",
+    "code": "MANAGEMENT_UNAIDED",
+    "category": "Management Studies",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "place_bba_dept",
+    "placeName": "DEPARTMENT OF MANAGEMENT STUDIES (BBA)",
+    "nodeId": "bba_371",
+    "buildingName": "BBA Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 8
+  },
+  {
+    "id": "dept_math_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Mathematics Department (Unaided)",
+    "code": "MATH_UNAIDED",
+    "category": "Mathematics",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_069_1788707743342",
+    "placeName": "DEPARTMENT OF MATHEMATICS SELF FINANCE",
+    "nodeId": "ab_069",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 6
+  },
+  {
+    "id": "dept_psychology_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Psychology Department",
+    "code": "PSYCHOLOGY_UNAIDED",
+    "category": "Psychology",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_mg_296_1788883547540",
+    "placeName": "DEPARTMENT OF PSYCHOLOGY",
+    "nodeId": "mg_296",
+    "buildingName": "Mariam Goretti Block",
+    "floorName": "Second Floor",
+    "facultyCount": 15
+  },
+  {
+    "id": "dept_physics_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Physics Department (Unaided)",
+    "code": "PHYSICS_UNAIDED",
+    "category": "Physics",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sc_224_1788850978509",
+    "placeName": "DEPARTMENT OF PHYSICS (UNAIDED)",
+    "nodeId": "sc_224",
+    "buildingName": "South Campus Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 8,
+    "candidates": [
+      {
+        "tagId": "tag_ab_047_1788704499571",
+        "tagName": "DEPARTMENT OF PHYSICS",
+        "nodeId": "ab_047"
+      },
+      {
+        "tagId": "tag_sc_224_1788850978509",
+        "tagName": "DEPARTMENT OF PHYSICS",
+        "nodeId": "sc_224"
+      }
+    ]
+  },
+  {
+    "id": "dept_social_work_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Social Work Department",
+    "code": "SOCIAL_WORK_UNAIDED",
+    "category": "Social Work",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sb_454_1788977177605",
+    "placeName": "DEPARTMENT OF SOCIAL WORK",
+    "nodeId": "sb_454",
+    "buildingName": "St. Bernard Block",
+    "floorName": "Ground Floor",
+    "facultyCount": 12
+  },
+  {
+    "id": "dept_stats_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Statistics Department (Unaided)",
+    "code": "STATS_UNAIDED",
+    "category": "Statistics",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_ab_081_1788708480499",
+    "placeName": "DEPARTMENT OF STATISTIC (UNAIDED)",
+    "nodeId": "ab_081",
+    "buildingName": "Administrative Block",
+    "floorName": "First Floor",
+    "facultyCount": 10
+  },
+  {
+    "id": "dept_bvoc_unaided",
+    "campusId": "campus_christ_main",
+    "name": "Vocational Studies Department (BVoc)",
+    "code": "BVOC_UNAIDED",
+    "category": "Vocational Studies",
+    "departmentType": "UNAIDED",
+    "status": "VERIFIED",
+    "placeId": "tag_sc_224_1788850949096",
+    "placeName": "DEPARTMEN OF BVOC",
+    "nodeId": "sc_224",
+    "buildingName": "South Campus Block",
+    "floorName": "First Floor",
+    "facultyCount": 6,
+    "candidates": [
+      {
+        "tagId": "tag_sc_224_1788850949096",
+        "tagName": "DEPARTMEN OF BVOC",
+        "nodeId": "sc_224"
+      }
+    ]
+  }
+]

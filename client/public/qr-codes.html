@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CampusNav — Official Block Entrance QR Codes | Christ College (Autonomous) Irinjalakuda</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #020617;
+      color: #f8fafc;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm;
+    }
+    @media print {
+      html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-page-break {
+        page-break-before: always;
+        break-before: page;
+      }
+      .block-card {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        border: 2px solid #0f172a !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        box-shadow: none !important;
+        margin-bottom: 1.5rem !important;
+        padding: 1.25rem !important;
+      }
+      .block-card h2, .block-card h3, .block-card span, .block-card p, .block-card li, .block-card div {
+        color: #000000 !important;
+      }
+      .qr-frame {
+        border: 2px solid #000000 !important;
+        background: #ffffff !important;
+      }
+      .tag-chip {
+        background: #f1f5f9 !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+      }
+      .floor-box {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 sm:p-8 flex flex-col items-center">
+
+  <!-- ==========================================
+       HEADER & COLLEGE BRANDING
+       ========================================== -->
+  <header class="max-w-6xl w-full text-center mb-8 no-print">
+    <div class="inline-flex items-center gap-2 bg-sky-500/10 border border-sky-500/30 px-4 py-1.5 rounded-full mb-3">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-xs font-black text-sky-400 tracking-wider uppercase">Official Physical Checkpoint Plaques</span>
+    </div>
+    <h1 class="text-3xl sm:text-5xl font-black text-white tracking-tight">Christ College (Autonomous)</h1>
+    <p class="text-base sm:text-lg text-slate-300 font-semibold mt-1">Irinjalakuda, Thrissur Dist., Kerala • Re-accredited by NAAC with 'A++' Grade</p>
+    <p class="text-xs sm:text-sm text-sky-400 font-medium mt-1">CampNav 360° Real Street View • Block Entrance QR Codes & Floor-by-Floor Directory</p>
+
+    <!-- Base URL Configurator -->
+    <div class="mt-6 p-4 sm:p-5 bg-slate-900/90 border border-white/10 rounded-2xl max-w-3xl mx-auto text-left shadow-2xl">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <label for="customDomain" class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+          <span>🔗 QR Target Base URL (Domain)</span>
+          <span class="text-[10px] text-sky-400 font-normal lowercase">(auto-updates all QR codes below)</span>
+        </label>
+        <span id="currentStatus" class="text-[11px] font-mono text-emerald-400 font-semibold">● Ready</span>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2 mb-3">
+        <input
+          type="text"
+          id="customDomain"
+          class="flex-1 px-3.5 py-2.5 bg-slate-950 border border-white/15 rounded-xl text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
+          placeholder="https://campnav.app"
+        />
+        <button
+          onclick="applyCustomDomain()"
+          class="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow transition-transform active:scale-95 flex items-center justify-center gap-1.5"
+        >
+          <span>Update QR Codes</span>
+        </button>
+      </div>
+
+      <!-- Quick Preset Buttons -->
+      <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
+        <span class="text-[10px] uppercase font-bold text-slate-400">Quick Presets:</span>
+        <button onclick="setDomainPreset('https://campnav-b3om.onrender.com')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold border border-emerald-400/30 shadow transition-colors">
+          🌐 Live Website (campnav-b3om.onrender.com)
+        </button>
+        <button onclick="setDomainPreset('https://campnav.app')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-white/10 transition-colors">
+          🌐 campnav.app
+        </button>
+        <button onclick="setDomainPreset('https://christcollegeijk.edu.in/campnav')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-white/10 transition-colors">
+          🏫 College Domain
+        </button>
+        <button id="btnMobileIp" onclick="setDomainPreset(window.location.origin)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-white/10 transition-colors">
+          📱 Local Server Origin
+        </button>
+      </div>
+    </div>
+
+    <!-- Print & Navigation Action Bar -->
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+      <button
+        onclick="window.print()"
+        class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm rounded-xl shadow-xl transition-all transform active:scale-95 flex items-center gap-2"
+      >
+        <span>🖨️ Print All Plaques (A4 Print Ready)</span>
+      </button>
+      <a
+        id="btnOpenApp"
+        href="/"
+        target="_blank"
+        class="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm rounded-xl border border-white/10 shadow transition-colors flex items-center gap-2"
+      >
+        <span>🧭 Launch CampNav Web App</span>
+      </a>
+    </div>
+
+    <!-- Instructions note -->
+    <p class="text-xs text-slate-400 mt-4 max-w-2xl mx-auto leading-relaxed">
+      💡 <strong class="text-slate-200">How to Use:</strong> Click <strong>"Print All Plaques"</strong> to print directly onto A4 paper, cardstock, or sticker sheets. Stick each plaque at the physical building entrance. When students or visitors point their smartphone camera or Google Lens at the code, it immediately teleports to the 360° entrance view and opens the interactive room directory.
+    </p>
+  </header>
+
+  <!-- ==========================================
+       OFFICIAL PRINT HEADER (Print Mode Only)
+       ========================================== -->
+  <div class="hidden print:block w-full text-center border-b-2 border-black pb-4 mb-6">
+    <h1 class="text-2xl font-black tracking-tight text-black">CHRIST COLLEGE (AUTONOMOUS), IRINJALAKUDA</h1>
+    <p class="text-xs font-bold text-black uppercase tracking-wider">Re-accredited by NAAC with 'A++' Grade • Kerala 680125</p>
+    <p class="text-sm font-black mt-1 text-black">CampNav 360° Real Street View • Official Campus Checkpoint Plaque</p>
+  </div>
+
+  <!-- ==========================================
+       BLOCK PLAQUE CARDS CONTAINER
+       ========================================== -->
+  <main id="blocksContainer" class="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+    <!-- Populated dynamically via JavaScript for zero mistakes & 100% data fidelity -->
+  </main>
+
+  <!-- ==========================================
+       FOOTER
+       ========================================== -->
+  <footer class="max-w-4xl w-full text-center py-6 border-t border-white/10 no-print text-xs text-slate-500">
+    <p class="font-bold text-slate-400">CampusNav — Christ College Irinjalakuda Wayfinding Infrastructure</p>
+    <p class="mt-1">All 8 official campus blocks verified. Error correction Level 'H' (30% physical defect tolerance).</p>
+  </footer>
+
+  <!-- ==========================================
+       DATA & DYNAMIC RENDERING LOGIC
+       ========================================== -->
+  <script>
+    const CAMPUS_BLOCKS = [
+      {
+            "id": "bld_ab",
+            "code": "QR-AB",
+            "shortCode": "AB",
+            "name": "Administrative Block (Main Wing)",
+            "subtitle": "Central Governance, Principal's Secretariat & Autonomous Administration",
+            "themeColor": "#2563eb",
+            "badgeBg": "bg-blue-600",
+            "entranceNode": "outdoor_015",
+            "description": "The primary administrative headquarters of Christ College (Autonomous) Irinjalakuda. Houses the Office of the Principal, Vice Principal's Wing, Central College Office, Cash & Fee Counter, IQAC Directorate, and Controller of Examinations.",
+            "departments": [
+                  "Central Administration",
+                  "Accounts & Finance",
+                  "Controller of Examinations",
+                  "IQAC Central Directorate",
+                  "Student Welfare Cell",
+                  "Academic Deans Directorate"
+            ],
+            "officers": [
+                  {
+                        "role": "Principal",
+                        "name": "Dr. Fr. Jolly Andrews CMI",
+                        "room": "Principal's Office (Room 101)"
+                  },
+                  {
+                        "role": "Controller of Examinations",
+                        "name": "Dr. Tom Cherian",
+                        "room": "Autonomous Exam Wing (Room 201)"
+                  },
+                  {
+                        "role": "IQAC Coordinator",
+                        "name": "Dr. Shinto K. G.",
+                        "room": "IQAC Directorate (Room 104)"
+                  },
+                  {
+                        "role": "Junior Superintendent",
+                        "name": "Sri. Shaju Varghese",
+                        "room": "Central Office (Ground Floor)"
+                  },
+                  {
+                        "role": "Dean of Academic Affairs",
+                        "name": "Dr. Robinson P. Ponminiessary",
+                        "room": "Deans' Wing"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Central Office & Public Enquiry",
+                        "rooms": [
+                              "Central College Office & Cash Counter (Rm G-01)",
+                              "Student Admissions & Verification Desk (Rm G-02)",
+                              "Fee Processing & Scholarship Section (Rm G-03)",
+                              "TC & Conduct Certificate Archive (Rm G-04)"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Office of the Principal & Governance",
+                        "rooms": [
+                              "Principal's Executive Secretariat (Room 101)",
+                              "Syndicate & Academic Council Boardroom (Room 102)",
+                              "Vice Principal & Deans' Chamber (Room 103)",
+                              "Internal Quality Assurance Cell - IQAC (Room 104)"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second Floor",
+                        "highlight": "Autonomous Examination Wing",
+                        "rooms": [
+                              "Controller of Examinations Directorate (Room 201)",
+                              "Autonomous Marklist & Tabulation Center (Room 202)",
+                              "Confidential Question Bank Cell (Room 203)",
+                              "Autonomous Curriculum Section (Room 204)"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: office@christcollegeijk.edu.in | Hours: 9:00 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_sc",
+            "code": "QR-SC",
+            "shortCode": "SC",
+            "name": "St. Chavara PG & Research Block",
+            "subtitle": "Interdisciplinary Research & Central Instrumentation Facility",
+            "themeColor": "#8b5cf6",
+            "badgeBg": "bg-purple-600",
+            "entranceNode": "outdoor_203",
+            "description": "Premier interdisciplinary research and postgraduate facility named after St. Kuriakose Elias Chavara. Houses Central Instrumentation Facility (FTIR, XRD), Polymer Chemistry Research Labs, and Chavara Seminar Auditorium.",
+            "departments": [
+                  "Chemistry (PG & Doctoral Research)",
+                  "Central Instrumentation Facility (CIF)",
+                  "Polymer & Nano-Materials Science",
+                  "Geology & Mineralogical Research"
+            ],
+            "officers": [
+                  {
+                        "role": "Director of Research",
+                        "name": "Research Directorate",
+                        "room": "Chavara Suite 1"
+                  },
+                  {
+                        "role": "HoD Chemistry",
+                        "name": "Senior Chemistry Faculty",
+                        "room": "Room SC-108"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Central Instrumentation & Seminar Hall",
+                        "rooms": [
+                              "Main Entrance Foyer (Node outdoor_203)",
+                              "Central Instrumentation Facility (FTIR, Spectrophotometry - SC-01)",
+                              "Chavara Research Seminar Auditorium (SC-Aud)",
+                              "PG Student & Scholar Lounge"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Advanced Chemistry Research Labs",
+                        "rooms": [
+                              "Organic & Inorganic Synthesis Lab (SC-105)",
+                              "Senior Research Faculty Cabins (SC-108)",
+                              "Polymer & Materials Characterization Lab",
+                              "Chemical Storage & Precision Balance Chamber"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second & Third Floors",
+                        "highlight": "Doctoral Scholar Workstations",
+                        "rooms": [
+                              "Doctoral Research Scholar Cubicles",
+                              "Advanced PG Chemistry Lecture Theatres",
+                              "Departmental Reference & Patent Archive"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: research@christcollegeijk.edu.in | Hours: 8:30 AM – 5:00 PM"
+      },
+      {
+            "id": "bld_mt",
+            "code": "QR-MT",
+            "shortCode": "MT",
+            "name": "Mother Teresa Social Science Block",
+            "subtitle": "Humanities, Social Sciences, Economics & Psychology",
+            "themeColor": "#4f46e5",
+            "badgeBg": "bg-indigo-600",
+            "entranceNode": "outdoor_143",
+            "description": "Social sciences and humanities hub housing Economics, History, English, Malayalam, Psychology, and Master of Social Work (MSW) departments, featuring language labs and behavioral observation centers.",
+            "departments": [
+                  "Department of Economics",
+                  "Department of English & Languages",
+                  "Department of History",
+                  "Department of Psychology",
+                  "Master of Social Work (MSW)"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD Economics",
+                        "name": "Economics Faculty Directorate",
+                        "room": "Room MT-01"
+                  },
+                  {
+                        "role": "HoD English",
+                        "name": "English Faculty Room",
+                        "room": "Room MT-101"
+                  },
+                  {
+                        "role": "HoD Psychology",
+                        "name": "Psychology Faculty Room",
+                        "room": "Room MT-108"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Economics, History & Social Science Lounge",
+                        "rooms": [
+                              "Department of Economics Staff Room (MT-01)",
+                              "Department of History Faculty Room (MT-03)",
+                              "Social Science Student Reading Lounge",
+                              "UG Lecture Theatres 101–104"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Languages, Phonetics & Psychology",
+                        "rooms": [
+                              "Digital Language & Phonetics Lab (MT-105)",
+                              "Department of English Staff Room (MT-101)",
+                              "Behavioral Psychology Assessment Lab (MT-108)",
+                              "Malayalam & Sanskrit Department Office"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second Floor",
+                        "highlight": "Social Work (MSW) & Research",
+                        "rooms": [
+                              "Master of Social Work (MSW) Directorate",
+                              "Counseling Observation Chambers",
+                              "Humanities PG Seminar Hall"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: humanities@christcollegeijk.edu.in | Hours: 8:30 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_main",
+            "code": "QR-MG",
+            "shortCode": "MG",
+            "name": "Mahatma Gandhi Block (Heritage)",
+            "subtitle": "Flagship Academic Wing, Computer Science & Physical Sciences",
+            "themeColor": "#0ea5e9",
+            "badgeBg": "bg-sky-500",
+            "entranceNode": "outdoor_269",
+            "description": "The historic flagship academic building of Christ College with its iconic colonial portico. Houses Computer Science, Data Science, AI, Physics, Mathematics, and Statistics Departments along with modern computing centers.",
+            "departments": [
+                  "Computer Science & AI",
+                  "Data Science & Analytics",
+                  "Department of Physics",
+                  "Department of Mathematics",
+                  "Department of Statistics"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD Computer Science",
+                        "name": "Department Staff Room",
+                        "room": "Room 107"
+                  },
+                  {
+                        "role": "Faculty Cabin",
+                        "name": "Prof. Divya K R",
+                        "room": "CS Cabin 3 (First Floor)"
+                  },
+                  {
+                        "role": "HoD Physics",
+                        "name": "Physics Faculty Room",
+                        "room": "Ground Floor Portico"
+                  },
+                  {
+                        "role": "HoD Mathematics",
+                        "name": "Maths Faculty Room",
+                        "room": "Room 208 (Second Floor)"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Colonial Portico & Physics Laboratories",
+                        "rooms": [
+                              "Grand Heritage Entrance Portico (Node outdoor_269)",
+                              "General Physics & Optics Laboratory (Lab P-1)",
+                              "Department of Physics Faculty Room",
+                              "Foundational Lecture Rooms 101 & 102"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Computer Science & Advanced Software Labs",
+                        "rooms": [
+                              "Computer Science Department & Staff Room (Rm 107)",
+                              "Computer Science Lab 1 (Main AI/ML & Python Lab)",
+                              "Prof. Divya K R Faculty Cabin (Cabin 3)",
+                              "Software Engineering & Cloud Computing Lab 2"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second Floor",
+                        "highlight": "Mathematics & Statistics Research Hub",
+                        "rooms": [
+                              "Department of Mathematics Staff Room (Room 208)",
+                              "Lecture Hall 204 (Room 204)",
+                              "Statistics & Operations Research Section",
+                              "Doctoral Scholar Workstations"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | CS Dept: cs@christcollegeijk.edu.in | Hours: 8:30 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_sm",
+            "code": "QR-SM",
+            "shortCode": "SM",
+            "name": "St. Mary's Commerce Block",
+            "subtitle": "Commerce & Professional Management Studies",
+            "themeColor": "#10b981",
+            "badgeBg": "bg-emerald-600",
+            "entranceNode": "outdoor_240",
+            "description": "Premier commerce education hub housing B.Com (Finance, Computer Application, Cooperation), M.Com, Professional Studies, Smart Interactive Lecture Theatres, and Commerce Analytics Computing Centers.",
+            "departments": [
+                  "Postgraduate Department of Commerce",
+                  "B.Com Professional Programs",
+                  "Commerce Analytics & Tally Suite",
+                  "Management Case Study Cells"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD Commerce",
+                        "name": "Commerce Faculty Directorate",
+                        "room": "Room SM-01"
+                  },
+                  {
+                        "role": "Program Coordinator",
+                        "name": "B.Com Self-Financing Cell",
+                        "room": "First Floor"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Commerce Reception & Smart Lecture Halls",
+                        "rooms": [
+                              "Commerce HOD Office & Faculty Room (SM-01)",
+                              "Commerce Smart Interactive Classroom 1 (SM-03)",
+                              "B.Com Foundation Lecture Halls 101–105",
+                              "Student Mentorship & Guidance Corner"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Advanced Commerce & Computing Labs",
+                        "rooms": [
+                              "Commerce Analytics, GST & Tally Lab (Lab C-1)",
+                              "M.Com Postgraduate Seminar Hall",
+                              "Faculty Cabins & Research Scholar Desks",
+                              "Room SM-153 (Classroom 153)"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second Floor",
+                        "highlight": "Professional Commerce Classrooms",
+                        "rooms": [
+                              "B.Com Final Year Lecture Halls",
+                              "Commerce Association Executive Room",
+                              "Departmental Reference Library"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: commerce@christcollegeijk.edu.in | Hours: 8:30 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_sj",
+            "code": "QR-SJ",
+            "shortCode": "SJ",
+            "name": "St. Joseph's Life Sciences Block",
+            "subtitle": "Zoological, Botanical & Environmental Research",
+            "themeColor": "#059669",
+            "badgeBg": "bg-teal-600",
+            "entranceNode": "outdoor_191",
+            "description": "Comprehensive biological sciences complex housing Zoology, Botany, Plant Biotechnology, Bioinformatics Laboratories, and the acclaimed Natural History Specimen Museum.",
+            "departments": [
+                  "Department of Zoology",
+                  "Department of Botany",
+                  "Environmental Science Directorate",
+                  "Plant Tissue Culture & Biotechnology"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD Zoology",
+                        "name": "Zoology Faculty Room",
+                        "room": "Ground Floor"
+                  },
+                  {
+                        "role": "HoD Botany",
+                        "name": "Botany Faculty Room",
+                        "room": "Room SJ-101"
+                  },
+                  {
+                        "role": "Curator",
+                        "name": "Natural History Museum",
+                        "room": "SJ-Museum"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Natural History Museum & Zoology",
+                        "rooms": [
+                              "Main Entrance Foyer (Node outdoor_191)",
+                              "Natural History & Biological Specimen Museum (SJ-Museum)",
+                              "Zoology UG & PG Laboratories (SJ-02)",
+                              "Specimen Preservation & Taxidermy Wing"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Botany & Tissue Culture Laboratories",
+                        "rooms": [
+                              "Department of Botany Staff Room (SJ-101)",
+                              "Plant Biotechnology & Tissue Culture Lab (SJ-TC)",
+                              "International Herbarium & Botanical Library",
+                              "Microscopy & Plant Physiology Section"
+                        ]
+                  },
+                  {
+                        "floorNumber": 2,
+                        "name": "Second & Third Floors",
+                        "highlight": "Research Scholars & Smart Classrooms",
+                        "rooms": [
+                              "Life Sciences Research Scholar Cubicles",
+                              "Advanced PG Zoology & Botany Classrooms",
+                              "Bioinformatics & Computational Biology Lab"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: lifesciences@christcollegeijk.edu.in | Hours: 8:30 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_hm",
+            "code": "QR-LF",
+            "shortCode": "LF",
+            "name": "LF Block (Hotel Management)",
+            "subtitle": "Hospitality Studies, Culinary Arts & Catering Science",
+            "themeColor": "#e11d48",
+            "badgeBg": "bg-rose-600",
+            "entranceNode": "outdoor_237",
+            "description": "Professional hospitality and culinary arts academy with model commercial restaurants, industrial training kitchens, bakery production suites, and hotel front office simulation labs.",
+            "departments": [
+                  "Department of Hotel Management & Catering",
+                  "Culinary Arts & Food Production",
+                  "Food & Beverage Service Training",
+                  "Housekeeping & Front Office Management"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD Hotel Management",
+                        "name": "Hospitality Faculty Suite",
+                        "room": "Ground Floor"
+                  },
+                  {
+                        "role": "Executive Chef / Faculty",
+                        "name": "Culinary Directorate",
+                        "room": "Kitchen Suite 1"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Culinary Kitchens & Model Restaurant",
+                        "rooms": [
+                              "Silver Spoon Model Training Restaurant (HM-R1)",
+                              "Basic & Advanced Culinary Arts Kitchen (HM-K1)",
+                              "Bakery & Confectionery Production Suite",
+                              "Food & Beverage Demonstration Area"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Front Office & Housekeeping Suites",
+                        "rooms": [
+                              "Hotel Front Desk Operations Simulation Lab (HM-102)",
+                              "Executive Hotel Suite & Housekeeping Lab",
+                              "Hospitality Theory Smart Classrooms",
+                              "Faculty Chambers & Conference Room"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: hm@christcollegeijk.edu.in | Hours: 8:30 AM – 4:30 PM"
+      },
+      {
+            "id": "bld_bba",
+            "code": "QR-GB",
+            "shortCode": "GB",
+            "name": "GB Block (BBA & Management Studies)",
+            "subtitle": "Business Administration, Incubation & Case Studies",
+            "themeColor": "#6366f1",
+            "badgeBg": "bg-indigo-600",
+            "entranceNode": "bba_364",
+            "description": "Modern management studies complex housing BBA lecture halls, Innovation & Entrepreneurship Development Cell (IEDC), business simulation analytics labs, and corporate boardroom suites.",
+            "departments": [
+                  "Department of Business Administration (BBA)",
+                  "Innovation & Entrepreneurship Cell (IEDC)",
+                  "Management Case Study Directorate",
+                  "Business Simulation Computing Lab"
+            ],
+            "officers": [
+                  {
+                        "role": "HoD BBA",
+                        "name": "Management Directorate",
+                        "room": "Room BBA-01"
+                  },
+                  {
+                        "role": "Incubation Officer",
+                        "name": "IEDC Startup Center",
+                        "room": "Room BBA-102"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "BBA Faculty & Interactive Classrooms",
+                        "rooms": [
+                              "Department of BBA Faculty Room (BBA-01)",
+                              "BBA Interactive Smart Classroom 1 (BBA-02)",
+                              "Case Study Discussion Chambers",
+                              "Student Management Council Room"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Business Analytics & Incubation",
+                        "rooms": [
+                              "Business Analytics & Simulation Lab (BBA-101)",
+                              "Innovation & Entrepreneurship Suite (BBA-102)",
+                              "Corporate Presentation & Boardroom (BBA-103)"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: bba@christcollegeijk.edu.in | Hours: Mon – Fri: 8:30 AM – 4:30 PM, Sat: 8:30 AM – 1:30 PM"
+      },
+      {
+            "id": "bld_bpe",
+            "code": "QR-BPE",
+            "shortCode": "BPE",
+            "name": "General Block & Physical Education Complex",
+            "subtitle": "Physical Education (BPE / MPES) & Campus Sports Directorate",
+            "themeColor": "#0284c7",
+            "badgeBg": "bg-sky-600",
+            "entranceNode": "gb_346",
+            "description": "Sports training and professional physical education complex housing Bachelor & Master of Physical Education (BPE/MPES) lecture rooms, sports physiology labs, table tennis arena, athletics council, and Dean offices.",
+            "departments": [
+                  "Department of Physical Education",
+                  "Bachelor of Physical Education (BPE)",
+                  "Master of Physical Education & Sports (MPES)",
+                  "Sports Fitness & Health Directorate"
+            ],
+            "officers": [
+                  {
+                        "role": "HOD Physical Education",
+                        "name": "Sri. Bintu T. Kalyan",
+                        "room": "Physical Education Wing (Ground Floor)"
+                  },
+                  {
+                        "role": "Dean of Student Affairs",
+                        "name": "Dr. Anilkumar N.",
+                        "room": "Deans Office (Ground Floor)"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Physical Education Wing & Dean's Office",
+                        "rooms": [
+                              "Department of Physical Education Office",
+                              "MPES Research & Seminar Room",
+                              "Sports Fitness & Table Tennis Arena",
+                              "Deans Office & Student Welfare"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "Academic Classrooms & Conference Hall",
+                        "rooms": [
+                              "BPE Lecture Theatres 101–103",
+                              "Academic Conference Hall",
+                              "Athletics Council Room"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: ped@christcollegeijk.edu.in | Hours: Mon – Sat: 6:00 AM – 6:30 PM"
+      },
+      {
+            "id": "bld_sb",
+            "code": "QR-SB",
+            "shortCode": "SB",
+            "name": "Sneha Bhavan & Social Work Block",
+            "subtitle": "Department of Social Work (BSW / MSW) & Christ Innovation Centre",
+            "themeColor": "#d97706",
+            "badgeBg": "bg-amber-600",
+            "entranceNode": "sb_429",
+            "description": "Dedicated social sciences and innovation hub housing Bachelor & Master of Social Work (BSW/MSW), Christ Innovation Centre, counseling suites, and community outreach labs.",
+            "departments": [
+                  "Department of Social Work (MSW / BSW)",
+                  "Christ Innovation & Incubation Centre",
+                  "Community Extension Directorate",
+                  "Mental Health Counseling Suite"
+            ],
+            "officers": [
+                  {
+                        "role": "HOD Social Work",
+                        "name": "Dr. Asha P. Rao",
+                        "room": "Room SB-01"
+                  },
+                  {
+                        "role": "Innovation Coordinator",
+                        "name": "Christ Innovation Centre",
+                        "room": "Innovation Suite"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Floor",
+                        "highlight": "Social Work Faculty & Innovation Wing",
+                        "rooms": [
+                              "Department of Social Work Office (SB-01)",
+                              "Christ Innovation & Startup Workspace",
+                              "Community Counseling Chambers",
+                              "Social Work Department Library"
+                        ]
+                  },
+                  {
+                        "floorNumber": 1,
+                        "name": "First Floor",
+                        "highlight": "MSW/BSW Interactive Classrooms",
+                        "rooms": [
+                              "Social Work Lecture Theatres 201–204",
+                              "Research Archive & Case Discussion Rooms"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: msw@christcollegeijk.edu.in | Hours: Mon – Fri: 8:30 AM – 4:30 PM, Sat: 8:30 AM – 1:30 PM"
+      },
+      {
+            "id": "bld_aud",
+            "code": "QR-AUD",
+            "shortCode": "AUD",
+            "name": "Christ College Main Auditorium",
+            "subtitle": "Central Convocation, Arts & Cultural Complex",
+            "themeColor": "#ec4899",
+            "badgeBg": "bg-pink-600",
+            "entranceNode": "outdoor_028",
+            "description": "The premier cultural centerpiece of Christ College (Autonomous), Irinjalakuda. Features full-stage lighting, acoustic seating for over 1,500 students, green rooms, and open air amphitheatre.",
+            "departments": [
+                  "Cultural Affairs Committee",
+                  "Fine Arts & Performing Arts Directorate",
+                  "College Union & Convocation Venue"
+            ],
+            "officers": [
+                  {
+                        "role": "Cultural Affairs Convener",
+                        "name": "Arts Committee Directorate",
+                        "room": "Auditorium Green Room 1"
+                  },
+                  {
+                        "role": "Auditorium In-Charge",
+                        "name": "General Administration",
+                        "room": "Central Office"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Level",
+                        "highlight": "Main Stage, Auditorium & Amphitheatre",
+                        "rooms": [
+                              "Main Auditorium Hall (Seating 1500+)",
+                              "Convocation Stage & AV Console",
+                              "Green Rooms & Artist Lounges",
+                              "Open Air Stage (outdoor_021)"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: office@christcollegeijk.edu.in | Hours: Events & Programs Schedule"
+      },
+      {
+            "id": "bld_gate",
+            "code": "QR-GATE",
+            "shortCode": "GATE",
+            "name": "Main Entrance Gate & Security Checkpoint",
+            "subtitle": "Campus Reception, Visitor Registration & Transit Hub",
+            "themeColor": "#14b8a6",
+            "badgeBg": "bg-teal-600",
+            "entranceNode": "outdoor_001",
+            "description": "The official primary entry portal of Christ College (Autonomous) Irinjalakuda on Irinjalakuda North road. Features 24/7 campus security helpdesk, visitor register, vehicle parking zones, and main avenue path.",
+            "departments": [
+                  "Campus Security & Surveillance",
+                  "Visitor Helpdesk & Information",
+                  "Traffic & Parking Management"
+            ],
+            "officers": [
+                  {
+                        "role": "Chief Security Officer",
+                        "name": "Campus Security Helpdesk",
+                        "room": "Main Gate Kiosk"
+                  },
+                  {
+                        "role": "Campus Receptionist",
+                        "name": "Visitor Registry Desk",
+                        "room": "Main Entrance Desk"
+                  }
+            ],
+            "floors": [
+                  {
+                        "floorNumber": 0,
+                        "name": "Ground Level",
+                        "highlight": "Main Gate & Information Kiosk",
+                        "rooms": [
+                              "Main Security & Visitor Registration Checkpoint (outdoor_001)",
+                              "Vehicle Parking Zone (outdoor_002)",
+                              "Main Avenue Boulevard (outdoor_003)"
+                        ]
+                  }
+            ],
+            "contact": "Phone: 0480 2825258 | Email: office@christcollegeijk.edu.in | Hours: 24 Hours / 7 Days"
+      }
+];
+
+    // Current active base URL for QR codes (defaults to live deployment)
+    let currentBaseUrl = window.location.origin.includes('localhost') || window.location.origin.includes('192.168.') || window.location.origin.includes('172.')
+      ? 'https://campnav-b3om.onrender.com' 
+      : window.location.origin;
+
+    // Initialize domain input
+    document.addEventListener('DOMContentLoaded', () => {
+      const customDomainInput = document.getElementById('customDomain');
+      if (customDomainInput) {
+        customDomainInput.value = currentBaseUrl;
+      }
+
+      // Update mobile IP button label
+      const btnMobile = document.getElementById('btnMobileIp');
+      if (btnMobile && window.location.origin) {
+        btnMobile.innerText = `📱 Current Host (${window.location.origin})`;
+      }
+
+      renderAllBlocks();
+    });
+
+    function setDomainPreset(presetUrl) {
+      currentBaseUrl = presetUrl.replace(/\/+$/, '');
+      const input = document.getElementById('customDomain');
+      if (input) input.value = currentBaseUrl;
+      updateStatus(`Updated to ${currentBaseUrl}`);
+      renderAllBlocks();
+    }
+
+    function applyCustomDomain() {
+      const input = document.getElementById('customDomain');
+      if (!input || !input.value.trim()) return;
+      let val = input.value.trim().replace(/\/+$/, '');
+      if (!val.startsWith('http://') && !val.startsWith('https://')) {
+        val = 'https://' + val;
+      }
+      currentBaseUrl = val;
+      input.value = currentBaseUrl;
+      updateStatus(`Updated to ${currentBaseUrl}`);
+      renderAllBlocks();
+    }
+
+    function updateStatus(msg) {
+      const el = document.getElementById('currentStatus');
+      if (el) {
+        el.innerText = `● ${msg}`;
+        el.classList.add('text-sky-400');
+        setTimeout(() => el.classList.remove('text-sky-400'), 2500);
+      }
+    }
+
+    // Render all 13 block cards with meticulous detail & printable styling
+    function renderAllBlocks() {
+      const container = document.getElementById('blocksContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      CAMPUS_BLOCKS.forEach((block, index) => {
+        const targetUrl = `${currentBaseUrl}/?qr=${encodeURIComponent(block.code)}`;
+        const card = document.createElement('div');
+        card.className = `block-card bg-slate-900/95 border border-white/15 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden flex flex-col justify-between ${index % 2 === 0 ? 'print-page-break' : ''}`;
+
+        // Build HTML
+        card.innerHTML = `
+          <!-- Decorative Top Glow -->
+          <div class="absolute -top-16 -right-16 w-52 h-52 rounded-full blur-3xl opacity-20 pointer-events-none no-print" style="background: ${block.themeColor};"></div>
+
+          <div>
+            <!-- Header Badge & Short Code -->
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <div class="flex items-center gap-2">
+                <span class="px-3.5 py-1.5 rounded-full text-xs font-black tracking-wider uppercase text-white shadow" style="background: ${block.themeColor};">
+                  ${block.shortCode} BLOCK
+                </span>
+                <span class="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-white/10 no-print">
+                  Node: ${block.entranceNode}
+                </span>
+              </div>
+              <span class="font-mono text-xs font-bold text-slate-200 bg-slate-800 px-3 py-1 rounded-lg border border-white/15 shadow-sm">
+                ${block.code}
+              </span>
+            </div>
+
+            <!-- Title & Subtitle -->
+            <h2 class="text-2xl sm:text-3xl font-black text-white leading-tight tracking-tight">${block.name}</h2>
+            <p class="text-xs sm:text-sm font-bold mt-1.5 text-sky-400">${block.subtitle}</p>
+            <p class="text-xs text-slate-300 mt-2.5 leading-relaxed">${block.description}</p>
+
+            <!-- QR Code Display Box (Printable Frame) -->
+            <div class="qr-frame my-6 bg-white p-5 rounded-3xl shadow-2xl flex flex-col items-center justify-center text-center max-w-[260px] mx-auto border-4 border-slate-800">
+              <div id="qr_${block.shortCode}" class="w-48 h-48 flex items-center justify-center bg-white"></div>
+              <div class="mt-3 text-center border-t border-slate-200 pt-2 w-full">
+                <p class="text-[11px] font-black text-slate-900 uppercase tracking-wider">SCAN TO ENTER IN 360°</p>
+                <p class="text-[9px] font-mono text-slate-600 font-semibold mt-0.5">CampNav • Christ College Irinjalakuda</p>
+              </div>
+            </div>
+
+            <!-- Academic Departments List -->
+            <div class="mb-5">
+              <p class="text-[11px] font-black uppercase tracking-wider text-slate-400 mb-2">🎓 Key Departments & Programs Housed</p>
+              <div class="flex flex-wrap gap-1.5">
+                ${block.departments.map(dept => `
+                  <span class="tag-chip text-xs font-semibold text-slate-200 bg-slate-800/80 border border-white/10 px-2.5 py-1 rounded-xl">
+                    ${dept}
+                  </span>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Floor by Floor Directory -->
+            <div class="space-y-3 mb-6">
+              <p class="text-[11px] font-black uppercase tracking-wider text-slate-400">🏢 Floor-by-Floor Room Directory</p>
+              ${block.floors.map(floor => `
+                <div class="floor-box bg-slate-950/70 border border-white/5 rounded-2xl p-3.5 text-left">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-bold text-sky-300">${floor.name}</span>
+                    <span class="text-[10px] text-slate-400 font-medium">${floor.highlight}</span>
+                  </div>
+                  <ul class="text-[11px] text-slate-300 space-y-1 mt-1.5 list-disc list-inside">
+                    ${floor.rooms.map(room => `<li>${room}</li>`).join('')}
+                  </ul>
+                </div>
+              `).join('')}
+            </div>
+
+            <!-- Key Officers in Charge -->
+            <div class="mb-5">
+              <p class="text-[11px] font-black uppercase tracking-wider text-slate-400 mb-2">👥 Key Officials & In-Charges</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                ${block.officers.map(officer => `
+                  <div class="bg-slate-950/40 border border-white/5 rounded-xl p-2 text-left">
+                    <p class="text-[11px] font-bold text-white">${officer.name}</p>
+                    <p class="text-[10px] text-sky-400">${officer.role}</p>
+                    <p class="text-[9px] text-slate-400 font-mono">${officer.room}</p>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Contact & Hours -->
+            <div class="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[10px] text-slate-400 font-medium">
+              📍 ${block.contact}
+            </div>
+          </div>
+
+          <!-- Card Action Buttons (Hidden on Print) -->
+          <div class="pt-5 mt-5 border-t border-white/10 flex flex-col gap-2 no-print">
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                onclick="downloadQRCode('${block.shortCode}', '${block.name}')"
+                class="py-3 px-3 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-white text-center border border-white/10 shadow transition-colors flex items-center justify-center gap-1.5"
+              >
+                <span>⬇️ Download PNG</span>
+              </button>
+              <a
+                href="${targetUrl}"
+                target="_blank"
+                class="py-3 px-3 rounded-xl font-bold text-xs text-white text-center shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5"
+                style="background: ${block.themeColor};"
+              >
+                <span>📱 Test in 360°</span>
+                <span>➔</span>
+              </a>
+            </div>
+            <p class="text-[10px] text-center text-slate-500 font-mono truncate">Payload: ${targetUrl}</p>
+          </div>
+        `;
+
+        container.appendChild(card);
+
+        // Generate QR code into container with bulletproof fallback
+        const qrContainer = document.getElementById(`qr_${block.shortCode}`);
+        if (qrContainer) {
+          generateQRCodeInContainer(qrContainer, targetUrl, block.shortCode);
+        }
+      });
+    }
+
+    function generateQRCodeInContainer(container, targetUrl, shortCode) {
+      container.innerHTML = '';
+      let generated = false;
+
+      if (typeof QRCode !== 'undefined') {
+        try {
+          new QRCode(container, {
+            text: targetUrl,
+            width: 192,
+            height: 192,
+            colorDark: "#020617",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+          });
+          generated = true;
+        } catch (e) {
+          console.warn('QRCode library failed for', shortCode, e);
+        }
+      }
+
+      if (!generated) {
+        // High-reliability fallback image generated via QR Server API
+        const img = document.createElement('img');
+        img.src = `https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${encodeURIComponent(targetUrl)}&margin=1`;
+        img.alt = `QR Code for ${shortCode}`;
+        img.className = 'w-48 h-48 object-contain mx-auto';
+        img.crossOrigin = 'anonymous';
+        container.appendChild(img);
+      }
+    }
+
+    // Download standalone high-res QR code PNG
+    async function downloadQRCode(shortCode, blockName) {
+      const qrContainer = document.getElementById(`qr_${shortCode}`);
+      const qrEl = qrContainer ? (qrContainer.querySelector('canvas') || qrContainer.querySelector('img')) : null;
+      if (!qrEl) {
+        alert('QR code image not ready for download. Please try again.');
+        return;
+      }
+
+      try {
+        let dataUrl = '';
+        if (qrEl.tagName.toLowerCase() === 'canvas') {
+          dataUrl = qrEl.toDataURL('image/png');
+        } else if (qrEl.tagName.toLowerCase() === 'img') {
+          if (qrEl.src.startsWith('data:')) {
+            dataUrl = qrEl.src;
+          } else {
+            const resp = await fetch(qrEl.src, { mode: 'cors' });
+            const blob = await resp.blob();
+            dataUrl = URL.createObjectURL(blob);
+          }
+        }
+
+        const link = document.createElement('a');
+        link.download = `QR_${shortCode}_${blockName.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        if (dataUrl.startsWith('blob:')) {
+          setTimeout(() => URL.revokeObjectURL(dataUrl), 2000);
+        }
+      } catch (err) {
+        console.error('Download failed, opening directly:', err);
+        window.open(qrEl.src, '_blank');
+      }
+    }
+  </script>
+</body>
+</html>

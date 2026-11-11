@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: campnav
+    runtime: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    buildFilter:
+      ignoredPaths:
+        - "server/data/**"
+        - "*.xlsx"
+        - "*.csv"
+        - "README.md"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # ─── SECURITY & AUTHENTICATION CONFIGURATION ───
+      # REQUIRED: Auto-generated secure signing secret for faculty tokens (min 16 chars)
+      - key: JWT_SECRET
+        generateValue: true
+
+      # ─── OPTIONAL ADMIN MODE (DISABLED BY DEFAULT IN PRODUCTION) ───
+      # In production, admin features are disabled unless BOTH variables below are explicitly configured (min 16 chars).
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_EMERGENCY_PIN
+        sync: false
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_EMAIL
+        value: admin@christcollegeijk.edu.in
+      - key: ADMIN_NAME
+        value: Christ College Administrator
+
+      # ─── FREE-TIER CLOUD DATA REPOSITORY SEPARATION ───
+      # To persist database changes on Render's free tier, configure a SEPARATE private data repository.
+      # Sync will be refused if GITHUB_DATA_REPO is identical to the code repository.
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_DATA_REPO
+        sync: false
+      - key: GITHUB_DATA_BRANCH
+        sync: false
+      - key: GITHUB_DATA_PATH
+        sync: false
+
+      # ─── OPTIONAL ALLOWED CORS ORIGINS ───
+      - key: ALLOWED_ORIGINS
+        sync: false
