@@ -478,49 +478,42 @@ async function runTests() {
     const originalFetch = globalThis.fetch;
 
     // -------------------------------------------------------------------------
-    // TEST (a): Boot restore: remote file with faculty accounts is adopted
+    // TEST (a): Small file (< 1 MB) with inline base64 content
     // -------------------------------------------------------------------------
     process.env.GITHUB_TOKEN = 'mock-fine-grained-token-test';
     process.env.GITHUB_DATA_REPO = 'muni-rul/waycampus-data';
     process.env.GITHUB_REPO = 'muni-rul/waycampus';
     process.env.ENABLE_STARTUP_CLOUD_SYNC = 'true';
 
-    const mockRemoteAccounts = [
+    const smallAccounts = [
       {
-        id: 'fa_remote_1',
-        facultyId: 'fac_remote_1',
-        email: 'remote.prof1@christcollegeijk.edu.in',
-        facultyCode: 'RP01',
-        passwordHash: hashPassword('RemoteSecretPass123!'),
+        id: 'fa_small_1',
+        facultyId: 'fac_small_1',
+        email: 'small.prof1@christcollegeijk.edu.in',
+        facultyCode: 'SP01',
+        passwordHash: hashPassword('SmallSecretPass123!'),
         mustChangePassword: false,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'fa_remote_2',
-        facultyId: 'fac_remote_2',
-        email: 'remote.prof2@christcollegeijk.edu.in',
-        facultyCode: 'RP02',
-        passwordHash: hashPassword('RemoteSecretPass456!'),
-        mustChangePassword: true,
         isActive: true,
         createdAt: new Date().toISOString(),
       },
     ];
 
-    const mockRemoteDatabaseState = {
+    const smallState = {
       ...store.exportDatabasePayload(),
-      facultyAccounts: mockRemoteAccounts,
+      facultyAccounts: smallAccounts,
     };
-    const mockRemoteB64 = Buffer.from(JSON.stringify(mockRemoteDatabaseState)).toString('base64');
+    const smallJsonStr = JSON.stringify(smallState);
+    const smallB64 = Buffer.from(smallJsonStr).toString('base64');
 
     globalThis.fetch = async (input: any, init?: any) => {
       const urlStr = String(input);
       if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
         return new Response(
           JSON.stringify({
-            sha: 'remote-sha-boot-abc',
-            content: mockRemoteB64,
+            sha: 'sha-small-inline-111',
+            size: Buffer.byteLength(smallJsonStr),
+            encoding: 'base64',
+            content: smallB64,
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
@@ -529,113 +522,366 @@ async function runTests() {
     };
 
     await store.initCloudSync();
-    const loadedAccounts = store.getFacultyAccounts();
-    const hasRemote1 = loadedAccounts.some((a) => a.id === 'fa_remote_1');
-    const hasRemote2 = loadedAccounts.some((a) => a.id === 'fa_remote_2');
-    assert(hasRemote1 && hasRemote2, 'TEST (a): Boot restore adopts remote faculty accounts from data repo');
-    assert(gitSyncService.getLastKnownRemoteSha() === 'remote-sha-boot-abc', 'TEST (a): Boot restore records remote SHA');
-    assert(gitSyncService.getLastKnownRemoteAccountCount() === 2, 'TEST (a): Boot restore records remote account count (2)');
+    assert(store.getFacultyAccounts().some((a) => a.id === 'fa_small_1'), 'TEST (a): Small file inline base64 restores faculty accounts');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'sha-small-inline-111', 'TEST (a): Records SHA from small file');
+    assert(gitSyncService.getLastKnownRemoteAccountCount() === 1, 'TEST (a): Records account count (1) from small file');
+    assert(!gitSyncService.isSyncPaused(), 'TEST (a): Sync is active after successful small file restore');
 
     // -------------------------------------------------------------------------
-    // TEST (b): Failed remote fetch pauses sync and pushes nothing
+    // TEST (b): Large file (> 1 MB, encoding 'none', empty content) via Git Blobs & Raw Fallback
     // -------------------------------------------------------------------------
+    const largeAccounts = [
+      {
+        id: 'fa_large_1',
+        facultyId: 'fac_large_1',
+        email: 'large.prof1@christcollegeijk.edu.in',
+        facultyCode: 'LP01',
+        passwordHash: hashPassword('LargeSecretPass123!'),
+        mustChangePassword: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'fa_large_2',
+        facultyId: 'fac_large_2',
+        email: 'large.prof2@christcollegeijk.edu.in',
+        facultyCode: 'LP02',
+        passwordHash: hashPassword('LargeSecretPass456!'),
+        mustChangePassword: true,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const largeState = {
+      ...store.exportDatabasePayload(),
+      facultyAccounts: largeAccounts,
+    };
+    const largeJsonStr = JSON.stringify(largeState);
+    const largeB64 = Buffer.from(largeJsonStr).toString('base64');
+    let blobApiInvoked = false;
+
+    // Subtest (b.1): Primary Git Blobs API
     globalThis.fetch = async (input: any, init?: any) => {
       const urlStr = String(input);
       if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
-        return new Response('Gateway Timeout', { status: 504 });
+        // Contents API returns metadata with empty content and encoding 'none'
+        return new Response(
+          JSON.stringify({
+            name: 'campusnav_db.json',
+            path: 'server/data/campusnav_db.json',
+            sha: 'sha-large-blob-222',
+            size: 1950000,
+            encoding: 'none',
+            content: '',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/git/blobs/sha-large-blob-222')) {
+        blobApiInvoked = true;
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-large-blob-222',
+            size: 1950000,
+            encoding: 'base64',
+            content: largeB64,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
       }
       return originalFetch(input, init);
     };
 
-    const fetchRes = await gitSyncService.fetchLatestRemoteDatabase();
-    assert(fetchRes.status === 504, 'TEST (b): Remote fetch returns error status on failure');
-    assert(gitSyncService.isSyncPaused(), 'TEST (b): Sync is paused after failed remote fetch');
+    const fetchLargeRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(blobApiInvoked, 'TEST (b): Git Blobs API was invoked for large file with encoding none');
+    assert(Boolean(fetchLargeRes.content), 'TEST (b): Large file content successfully returned from Blobs API');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'sha-large-blob-222', 'TEST (b): Remote SHA set from large file blob');
+    assert(gitSyncService.getLastKnownRemoteAccountCount() === 2, 'TEST (b): Account count set to 2 from large file');
+    assert(!gitSyncService.isSyncPaused(), 'TEST (b): Sync not paused after successful large file fetch');
 
-    let attemptedPut = false;
+    // Subtest (b.2): Fallback to Raw Contents endpoint if Blobs API fails
+    let rawFallbackInvoked = false;
     globalThis.fetch = async (input: any, init?: any) => {
       const urlStr = String(input);
-      if (init?.method === 'PUT' || urlStr.includes('api.github.com')) {
-        attemptedPut = true;
-        return new Response('{}', { status: 200 });
+      const headers = (init?.headers || {}) as any;
+      const acceptHeader = headers['Accept'] || headers['accept'] || '';
+
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        if (acceptHeader.includes('raw')) {
+          rawFallbackInvoked = true;
+          return new Response(largeJsonStr, { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-large-raw-333',
+            size: 1950000,
+            encoding: 'none',
+            content: '',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/git/blobs')) {
+        return new Response('Blob not found', { status: 404 });
       }
       return originalFetch(input, init);
     };
 
-    const blockedSyncRes = await gitSyncService.syncFile(store.getDataFilePath());
-    assert(blockedSyncRes.success === false, 'TEST (b): syncFile rejected while sync is paused');
-    assert(!attemptedPut, 'TEST (b): No HTTP PUT was made to GitHub while sync is paused');
+    const fetchRawFallbackRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(rawFallbackInvoked, 'TEST (b): Raw contents API fallback was invoked when Blobs API failed');
+    assert(Boolean(fetchRawFallbackRes.content), 'TEST (b): Large file content successfully returned via raw fallback');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'sha-large-raw-333', 'TEST (b): Remote SHA set from raw fallback');
 
     // -------------------------------------------------------------------------
-    // TEST (c): Stale-SHA PUT gets 409, fetches latest, merges accounts, and succeeds on retry
+    // TEST (c): Size 0 or invalid JSON pauses sync and pushes nothing
+    // -------------------------------------------------------------------------
+    // Subtest c.1: Size 0
+    gitSyncService.setSyncPaused(false);
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-zero-file',
+            size: 0,
+            encoding: 'none',
+            content: '',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return originalFetch(input, init);
+    };
+
+    const zeroRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(zeroRes.content === null, 'TEST (c): Size 0 file returns null content');
+    assert(gitSyncService.isSyncPaused(), 'TEST (c): Size 0 file pauses sync');
+
+    let attemptedPutOnZero = false;
+    globalThis.fetch = async (input: any, init?: any) => {
+      if (init?.method === 'PUT') attemptedPutOnZero = true;
+      return originalFetch(input, init);
+    };
+    const pushOnZeroRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(pushOnZeroRes.success === false, 'TEST (c): syncFile blocked when sync paused due to size 0');
+    assert(!attemptedPutOnZero, 'TEST (c): No PUT dispatched when sync paused due to size 0');
+
+    // Subtest c.2: Invalid JSON
+    gitSyncService.setSyncPaused(false);
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-corrupt-json',
+            size: 150,
+            encoding: 'base64',
+            content: Buffer.from('NOT_VALID_JSON{{{').toString('base64'),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return originalFetch(input, init);
+    };
+
+    const corruptRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(corruptRes.content === null, 'TEST (c): Invalid JSON returns null content');
+    assert(gitSyncService.isSyncPaused(), 'TEST (c): Invalid JSON pauses sync');
+
+    let attemptedPutOnCorrupt = false;
+    globalThis.fetch = async (input: any, init?: any) => {
+      if (init?.method === 'PUT') attemptedPutOnCorrupt = true;
+      return originalFetch(input, init);
+    };
+    const pushOnCorruptRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(pushOnCorruptRes.success === false, 'TEST (c): syncFile blocked when sync paused due to invalid JSON');
+    assert(!attemptedPutOnCorrupt, 'TEST (c): No PUT dispatched when sync paused due to invalid JSON');
+
+    // -------------------------------------------------------------------------
+    // TEST (d): 409 Conflict retry works with a large remote file
     // -------------------------------------------------------------------------
     gitSyncService.setSyncPaused(false);
-    gitSyncService.setLastKnownRemoteState('stale-sha-111', 2);
+    const localCount = store.getFacultyAccounts().length;
+    gitSyncService.setLastKnownRemoteState('stale-sha-pre-409', localCount);
 
-    let putCount = 0;
-    let getAfterConflict = false;
-
-    const concurrentRemoteState = {
+    const concurrentLargeState = {
       ...store.exportDatabasePayload(),
       facultyAccounts: [
-        ...mockRemoteAccounts,
+        ...largeAccounts,
         {
-          id: 'fa_concurrent_3',
-          facultyId: 'fac_concurrent_3',
-          email: 'concurrent.prof@christcollegeijk.edu.in',
-          facultyCode: 'CP03',
-          passwordHash: hashPassword('ConcurrentPass123!'),
+          id: 'fa_concurrent_large_3',
+          facultyId: 'fac_concurrent_large_3',
+          email: 'concurrent.large@christcollegeijk.edu.in',
+          facultyCode: 'CLP03',
+          passwordHash: hashPassword('ConcurrentLargePass123!'),
           mustChangePassword: false,
           isActive: true,
           createdAt: new Date().toISOString(),
         },
       ],
     };
-    const concurrentB64 = Buffer.from(JSON.stringify(concurrentRemoteState)).toString('base64');
+    const concurrentLargeJsonStr = JSON.stringify(concurrentLargeState);
+    const concurrentLargeB64 = Buffer.from(concurrentLargeJsonStr).toString('base64');
+
+    let putCountLarge = 0;
+    let blobFetchOn409 = false;
 
     globalThis.fetch = async (input: any, init?: any) => {
       const urlStr = String(input);
       if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
         if (init?.method === 'PUT') {
-          putCount++;
-          if (putCount === 1) {
+          putCountLarge++;
+          if (putCountLarge === 1) {
             // First attempt with stale SHA returns 409 Conflict
             return new Response(JSON.stringify({ message: 'Sha did not match' }), {
               status: 409,
               headers: { 'Content-Type': 'application/json' },
             });
           } else {
-            // Second attempt (retry with merged state and fresh SHA) succeeds
+            // Retry attempt with updated SHA from large file merge
             const bodyObj = JSON.parse(init.body);
-            assert(bodyObj.sha === 'fresh-sha-222', 'TEST (c): Retry PUT uses fresh SHA from conflict resolution');
+            assert(bodyObj.sha === 'fresh-large-sha-444', 'TEST (d): Retry PUT uses fresh SHA from large remote file');
             return new Response(
-              JSON.stringify({ commit: { sha: 'final-sha-333' }, content: { sha: 'final-sha-333' } }),
+              JSON.stringify({ commit: { sha: 'final-large-sha-555' }, content: { sha: 'final-large-sha-555' } }),
               { status: 200, headers: { 'Content-Type': 'application/json' } }
             );
           }
         } else if (!init?.method || init?.method === 'GET') {
-          getAfterConflict = true;
+          // Contents metadata for large file
           return new Response(
-            JSON.stringify({ sha: 'fresh-sha-222', content: concurrentB64 }),
+            JSON.stringify({
+              sha: 'fresh-large-sha-444',
+              size: 1950000,
+              encoding: 'none',
+              content: '',
+            }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           );
         }
       }
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/git/blobs/fresh-large-sha-444')) {
+        blobFetchOn409 = true;
+        return new Response(
+          JSON.stringify({
+            sha: 'fresh-large-sha-444',
+            size: 1950000,
+            encoding: 'base64',
+            content: concurrentLargeB64,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
       return originalFetch(input, init);
     };
 
-    const retrySyncRes = await gitSyncService.syncFile(store.getDataFilePath());
-    assert(retrySyncRes.success === true, 'TEST (c): syncFile succeeds on retry after 409 Conflict');
-    assert(getAfterConflict, 'TEST (c): Latest remote database fetched following 409 conflict');
-    assert(putCount === 2, 'TEST (c): Exactly 2 PUT attempts performed (initial + 1 retry)');
-    assert(gitSyncService.getLastKnownRemoteSha() === 'final-sha-333', 'TEST (c): Final remote SHA updated to retry result');
-    const mergedLiveAccounts = store.getFacultyAccounts();
+    const retry409LargeRes = await gitSyncService.syncFile(store.getDataFilePath());
+    assert(retry409LargeRes.success === true, 'TEST (d): syncFile succeeds on retry after 409 with large remote file');
+    assert(blobFetchOn409, 'TEST (d): Large remote file blob fetched during 409 conflict handling');
+    assert(putCountLarge === 2, 'TEST (d): Exactly 2 PUT requests executed');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'final-large-sha-555', 'TEST (d): Final SHA updated to retry result');
     assert(
-      mergedLiveAccounts.some((a) => a.id === 'fa_concurrent_3'),
-      'TEST (c): Concurrent remote account preserved in live store after merge'
+      store.getFacultyAccounts().some((a) => a.id === 'fa_concurrent_large_3'),
+      'TEST (d): Merged account from large remote file is present in store'
     );
 
     // -------------------------------------------------------------------------
-    // TEST (d): Local state with fewer accounts is blocked from pushing
+    // TEST (e_large): Generated database file > 1.5 MB with several faculty accounts
+    // -------------------------------------------------------------------------
+    gitSyncService.setSyncPaused(false);
+    const multiAccounts = [
+      {
+        id: 'fa_big_1',
+        facultyId: 'fac_big_1',
+        email: 'big.prof1@christcollegeijk.edu.in',
+        facultyCode: 'BP01',
+        passwordHash: hashPassword('BigPass1234567!'),
+        mustChangePassword: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'fa_big_2',
+        facultyId: 'fac_big_2',
+        email: 'big.prof2@christcollegeijk.edu.in',
+        facultyCode: 'BP02',
+        passwordHash: hashPassword('BigPass2345678!'),
+        mustChangePassword: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'fa_big_3',
+        facultyId: 'fac_big_3',
+        email: 'big.prof3@christcollegeijk.edu.in',
+        facultyCode: 'BP03',
+        passwordHash: hashPassword('BigPass3456789!'),
+        mustChangePassword: false,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    // Pad database state to exceed 1.5 MB (e.g. ~1.65 MB)
+    const paddingBlock = 'A'.repeat(50000);
+    const paddedSnapshots = Array.from({ length: 32 }, (_, i) => ({
+      id: `snap_pad_${i}`,
+      name: `Snapshot Padding ${i}`,
+      description: paddingBlock,
+      createdAt: new Date().toISOString(),
+      createdBy: 'SystemPad',
+    }));
+
+    const bigDatabaseState = {
+      ...store.exportDatabasePayload(),
+      facultyAccounts: multiAccounts,
+      snapshots: paddedSnapshots,
+    };
+    const bigJsonStr = JSON.stringify(bigDatabaseState);
+    const bigSizeBytes = Buffer.byteLength(bigJsonStr);
+    assert(bigSizeBytes > 1.5 * 1024 * 1024, `TEST (e_large): Test database is > 1.5 MB (actual: ${(bigSizeBytes / (1024 * 1024)).toFixed(2)} MB)`);
+
+    const bigB64 = Buffer.from(bigJsonStr).toString('base64');
+    let bigBlobCalled = false;
+
+    globalThis.fetch = async (input: any, init?: any) => {
+      const urlStr = String(input);
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/contents')) {
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-big-15mb-666',
+            size: bigSizeBytes,
+            encoding: 'none',
+            content: '',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.includes('api.github.com/repos/muni-rul/waycampus-data/git/blobs/sha-big-15mb-666')) {
+        bigBlobCalled = true;
+        return new Response(
+          JSON.stringify({
+            sha: 'sha-big-15mb-666',
+            size: bigSizeBytes,
+            encoding: 'base64',
+            content: bigB64,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return originalFetch(input, init);
+    };
+
+    const bigFetchRes = await gitSyncService.fetchLatestRemoteDatabase();
+    assert(bigBlobCalled, 'TEST (e_large): Big file (>1.5MB) blob endpoint was invoked');
+    assert(Boolean(bigFetchRes.content), 'TEST (e_large): Content returned for >1.5MB file');
+    const parsedBig = JSON.parse(bigFetchRes.content!);
+    assert(Array.isArray(parsedBig.facultyAccounts) && parsedBig.facultyAccounts.length === 3, 'TEST (e_large): Restored all 3 faculty accounts from >1.5MB file');
+    assert(gitSyncService.getLastKnownRemoteAccountCount() === 3, 'TEST (e_large): Account count is 3');
+    assert(gitSyncService.getLastKnownRemoteSha() === 'sha-big-15mb-666', 'TEST (e_large): Remote SHA recorded for >1.5MB file');
+
+    // -------------------------------------------------------------------------
+    // TEST (f_guard): Local state with fewer accounts is blocked from pushing
     // -------------------------------------------------------------------------
     gitSyncService.setSyncPaused(false);
     gitSyncService.setLastKnownRemoteState('sha-protect-999', 50); // Remote known to have 50 accounts
@@ -651,11 +897,11 @@ async function runTests() {
     };
 
     const reducedSyncRes = await gitSyncService.syncFile(store.getDataFilePath());
-    assert(reducedSyncRes.success === false, 'TEST (d): Cloud sync blocked when local has fewer accounts than remote');
-    assert(!pushAttemptedUnderProtection, 'TEST (d): No PUT sent when local accounts < remote accounts');
+    assert(reducedSyncRes.success === false, 'TEST (f_guard): Cloud sync blocked when local has fewer accounts than remote');
+    assert(!pushAttemptedUnderProtection, 'TEST (f_guard): No PUT sent when local accounts < remote accounts');
     assert(
       reducedSyncRes.message.includes('fewer faculty accounts'),
-      'TEST (d): Rejection message explicitly notes account protection'
+      'TEST (f_guard): Rejection message explicitly notes account protection'
     );
 
     // -------------------------------------------------------------------------

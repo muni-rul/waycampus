@@ -169,6 +169,12 @@ class GitSyncService {
     this.isSyncing = true;
     try {
       const fileContent = fs.readFileSync(localFilePath);
+      const fileSizeMb = fileContent.length / (1024 * 1024);
+      if (fileSizeMb >= 50) {
+        console.warn(
+          `[CloudSync Warning] Database file size (${fileSizeMb.toFixed(2)} MB) is approaching GitHub limit (100 MB). Consider pruning snapshots.`
+        );
+      }
       const base64Content = fileContent.toString('base64');
 
       const apiUrl = `https://api.github.com/repos/${repo}/contents/${targetPath}?ref=${branch}`;
@@ -195,7 +201,7 @@ class GitSyncService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(putBody),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(30000),
       });
 
       // Handle 409 Conflict: Remote was updated by another writer since our last fetch
@@ -220,7 +226,7 @@ class GitSyncService {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(putBody),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(30000),
           });
         }
       }
@@ -308,7 +314,7 @@ class GitSyncService {
         'User-Agent': 'CampusNav-Server-Sync/1.0',
       };
 
-      const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(10000) });
+      const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(30000) });
 
       if (res.status === 404) {
         console.log('[CloudSync] No remote data (404): starting from seed');
@@ -334,27 +340,109 @@ class GitSyncService {
       }
 
       const data = (await res.json()) as any;
-      if (!data || !data.content) {
-        console.warn('[CloudSync] Remote fetch returned empty content; sync paused to protect data');
+      if (!data || typeof data !== 'object') {
+        console.warn('[CloudSync] Remote fetch returned invalid metadata; sync paused to protect data');
         this.syncPaused = true;
-        this.syncPauseReason = 'Empty payload';
+        this.syncPauseReason = 'Invalid metadata response';
+        return { content: null, status: 500 };
+      }
+
+      const fileSizeBytes = typeof data.size === 'number' ? data.size : 0;
+      if (fileSizeBytes === 0 && (!data.content || data.content.length === 0)) {
+        console.warn('[CloudSync] Remote file is empty (size 0); sync paused to protect data');
+        this.syncPaused = true;
+        this.syncPauseReason = 'Empty remote file (size 0)';
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = false;
+        this.lastSyncMessage = 'Remote file on GitHub has size 0';
         return { content: null, status: 200 };
       }
 
-      const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
+      let decoded: string | null = null;
+      let effectiveSize = fileSizeBytes;
+
+      // 1. Small files (<= 1 MB): GitHub returns inline base64 in data.content
+      if (typeof data.content === 'string' && data.content.trim().length > 0 && data.encoding === 'base64') {
+        decoded = Buffer.from(data.content, 'base64').toString('utf-8');
+      }
+
+      // 2. Large files (1 MB to 100 MB, encoding "none" or empty content):
+      // Primary: Git Blobs API (GET /repos/{owner}/{repo}/git/blobs/{sha})
+      if (!decoded && data.sha) {
+        try {
+          const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${data.sha}`;
+          const blobRes = await fetch(blobUrl, {
+            headers,
+            signal: AbortSignal.timeout(30000),
+          });
+          if (blobRes.ok) {
+            const blobData = (await blobRes.json()) as any;
+            if (blobData && typeof blobData.content === 'string' && blobData.encoding === 'base64') {
+              decoded = Buffer.from(blobData.content, 'base64').toString('utf-8');
+              if (blobData.size) effectiveSize = blobData.size;
+            }
+          }
+        } catch (blobErr: any) {
+          console.warn('[CloudSync] Git Blobs API download failed, attempting raw contents fallback:', blobErr?.message);
+        }
+
+        // Fallback: Contents API with Accept: application/vnd.github.raw+json or application/vnd.github.v3.raw
+        if (!decoded) {
+          try {
+            const rawHeaders = {
+              ...headers,
+              Accept: 'application/vnd.github.raw+json, application/vnd.github.v3.raw',
+            };
+            const rawRes = await fetch(apiUrl, {
+              headers: rawHeaders,
+              signal: AbortSignal.timeout(30000),
+            });
+            if (rawRes.ok) {
+              decoded = await rawRes.text();
+            }
+          } catch (rawErr: any) {
+            console.warn('[CloudSync] Raw contents download fallback failed:', rawErr?.message);
+          }
+        }
+      }
+
+      if (!decoded || decoded.trim().length === 0) {
+        console.warn('[CloudSync] Remote fetch returned empty content; sync paused to protect data');
+        this.syncPaused = true;
+        this.syncPauseReason = 'Empty payload or failed large file download';
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = false;
+        this.lastSyncMessage = 'Could not retrieve file content from GitHub';
+        return { content: null, status: 200 };
+      }
+
+      // Validate JSON structure
+      let parsed: any;
+      try {
+        parsed = JSON.parse(decoded);
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.buildings)) {
+          throw new Error('Database payload missing required fields (e.g. buildings array)');
+        }
+      } catch (parseErr: any) {
+        console.warn(`[CloudSync] Remote file is not valid JSON (${parseErr.message}); sync paused to protect data`);
+        this.syncPaused = true;
+        this.syncPauseReason = `Invalid JSON: ${parseErr.message}`;
+        this.lastSyncTime = new Date().toISOString();
+        this.lastSyncSuccess = false;
+        this.lastSyncMessage = `Invalid JSON from GitHub: ${parseErr.message}`;
+        return { content: null, status: 200 };
+      }
+
+      const accCount = Array.isArray(parsed.facultyAccounts) ? parsed.facultyAccounts.length : 0;
+      const tchCount = Array.isArray(parsed.teachers) ? parsed.teachers.length : 0;
+      const sizeMb = (effectiveSize / (1024 * 1024)).toFixed(2);
+
       this.lastKnownRemoteSha = data.sha || null;
+      this.lastKnownRemoteAccountCount = accCount;
       this.syncPaused = false;
       this.syncPauseReason = null;
 
-      try {
-        const parsed = JSON.parse(decoded);
-        const accCount = Array.isArray(parsed.facultyAccounts) ? parsed.facultyAccounts.length : 0;
-        const tchCount = Array.isArray(parsed.teachers) ? parsed.teachers.length : 0;
-        this.lastKnownRemoteAccountCount = accCount;
-        console.log(`[CloudSync] Restored ${accCount} faculty accounts, ${tchCount} teachers from data repo`);
-      } catch {
-        // Ignored
-      }
+      console.log(`[CloudSync] Restored ${accCount} faculty accounts, ${tchCount} teachers from data repo (size ${sizeMb} MB)`);
 
       this.lastSyncTime = new Date().toISOString();
       this.lastSyncSuccess = true;
