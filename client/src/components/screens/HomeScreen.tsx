@@ -187,7 +187,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenSearch }) => {
         </div>
 
         {/* Category Pills (Filters work properly) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 overscroll-x-contain touch-pan-x">
           {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
             return (

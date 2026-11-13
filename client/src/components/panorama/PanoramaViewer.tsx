@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   MapPin,
   Clock,
   Footprints,
@@ -31,10 +33,15 @@ import {
   ArrowRight,
   Plus,
   Minus,
+  RefreshCw,
 } from 'lucide-react';
-import { PanoramaNode, PanoramaHotspot, VerifiedPlace, CustomPlaceTag, SearchResult } from '../../../../shared/types';
+import { PanoramaNode, PanoramaHotspot, VerifiedPlace, CustomPlaceTag, SearchResult, PublicFacultyStatus } from '../../../../shared/types';
 import { shouldRenderNavigationArrow } from '../../../../shared/arrowVisibility';
 export { shouldRenderNavigationArrow };
+import { getDirectionHintWithHysteresis, DirectionHint } from '../../../../shared/directionHint';
+import { resolveArrivalDetails } from '../../../../shared/arrivalDetails';
+import { formatRemainingSteps } from '../../../../shared/stepWording';
+import { computeChevronTrail, computeChevronTransform } from '../../../../shared/chevronTrail';
 import { PanoramaTextureGenerator } from '../../services/panoramaTextureGenerator';
 import { useNavigation } from '../../context/NavigationContext';
 import { CAMPUS_ZONES } from '../../services/campusPathfinder';
@@ -344,7 +351,14 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
     commitCurrentPanorama,
     setActiveTab,
     openReportModal,
+    startNavigationRoute,
   } = useNavigation();
+
+  // Navigation UI & Route Expansion State
+  const [isStepListExpanded, setIsStepListExpanded] = useState<boolean>(false);
+  const [directionHint, setDirectionHint] = useState<DirectionHint | null>(null);
+  const lastHintComputeTimeRef = useRef<number>(0);
+  const [facultyArrivalStatus, setFacultyArrivalStatus] = useState<PublicFacultyStatus | null>(null);
 
   const [isLocatingGPS, setIsLocatingGPS] = useState(false);
   const [showZonePicker, setShowZonePicker] = useState(false);
@@ -368,6 +382,17 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   useEffect(() => {
     loadVerifiedPlaces();
   }, [loadVerifiedPlaces]);
+
+  // Page Visibility tracking to pause animations when tab is hidden
+  useEffect(() => {
+    const handleVisibility = () => {
+      isDocumentVisibleRef.current = !document.hidden;
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
 
   const [tagsUpdateCounter, setTagsUpdateCounter] = useState(0);
   useEffect(() => {
@@ -436,6 +461,14 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   const fadeSphereMeshRef = useRef<THREE.Mesh | null>(null);
   const textureCacheRef = useRef<Map<string, THREE.Texture>>(new Map());
   const chevronTextureCacheRef = useRef<Map<string, THREE.Texture>>(new Map());
+  const sharedChevronTextureRef = useRef<THREE.CanvasTexture | null>(null);
+  const activeChevronTrailMeshesRef = useRef<THREE.Mesh[]>([]);
+  const isDocumentVisibleRef = useRef<boolean>(typeof document !== 'undefined' ? !document.hidden : true);
+  const wasShowingHintRef = useRef<boolean>(false);
+  const prefersReducedMotion = useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    []
+  );
   const waypointsGroupRef = useRef<THREE.Group | null>(null);
   const placesGroupRef = useRef<THREE.Group | null>(null);
   const tilesGroupRef = useRef<THREE.Group | null>(null);
@@ -456,6 +489,57 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
     (Boolean(activeNavigationRoute) &&
       currentRouteIndex >= (activeNavigationRoute?.steps.length || 1) - 1 &&
       activeNavigationRoute?.steps.length !== 0);
+
+  // Authoritative target angle towards the next navigation waypoint
+  const targetNextPathYaw = useMemo(() => {
+    if (!isRouteActive || isArrived) return null;
+    let authoritativeNextNodeId: string | null = null;
+    if (activeNavigationRoute?.pathNodeIds) {
+      const pIdx = activeNavigationRoute.pathNodeIds.indexOf(panorama.id);
+      if (pIdx !== -1 && pIdx + 1 < activeNavigationRoute.pathNodeIds.length) {
+        authoritativeNextNodeId = activeNavigationRoute.pathNodeIds[pIdx + 1];
+      }
+    }
+    if (!authoritativeNextNodeId && currentStep?.targetNodeId) {
+      authoritativeNextNodeId = currentStep.targetNodeId;
+    }
+    if (authoritativeNextNodeId) {
+      const matchingSpot = (panorama.hotspots || []).find(
+        (h) => h.targetPanoId && h.targetPanoId.toLowerCase() === authoritativeNextNodeId!.toLowerCase()
+      );
+      if (matchingSpot) return matchingSpot.yaw;
+    }
+    if (nextRouteHotspotYaw !== undefined) return nextRouteHotspotYaw;
+    if (currentStep?.arrowScreenYaw !== undefined) return currentStep.arrowScreenYaw;
+    if (currentStep?.yaw !== undefined) return currentStep.yaw;
+    return null;
+  }, [isRouteActive, isArrived, activeNavigationRoute, panorama.id, panorama.hotspots, currentStep, nextRouteHotspotYaw]);
+
+  // Destination Arrival Details & Live Faculty Status
+  const arrivalDetails = useMemo(() => {
+    return resolveArrivalDetails({
+      isArrived,
+      destinationTitle: activeNavigationRoute?.destinationTitle || destinationLabel,
+      selectedDestination,
+      currentPanorama: panorama,
+    });
+  }, [isArrived, activeNavigationRoute, destinationLabel, selectedDestination, panorama]);
+
+  useEffect(() => {
+    if (!isArrived || !arrivalDetails.isTeacher || !arrivalDetails.teacherId) {
+      setFacultyArrivalStatus(null);
+      return;
+    }
+    let isCancelled = false;
+    ApiService.getFacultyStatus(arrivalDetails.teacherId).then((st) => {
+      if (!isCancelled && st) {
+        setFacultyArrivalStatus(st);
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isArrived, arrivalDetails.isTeacher, arrivalDetails.teacherId]);
 
   // Orientation & Look Angles (Spherical Coordinates)
   const restoredCameraState = useMemo(() => getRestoredCameraState(), []);
@@ -772,165 +856,52 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   };
 
   // ─────────────────────────────────────────────────────────────
-  // Helper 1: Authentic Google Maps Street View Ground Chevron
+  // Helper 1: Reusable Flat Ground Chevron Texture
+  // White fill with a thin vibrant blue edge for clean visibility across all road/corridor surfaces
   // ─────────────────────────────────────────────────────────────
-  const createStreetViewGroundChevronSprite = (
-    spot: PanoramaHotspot,
-    isPrimaryNextStep: boolean,
-    isTargetReady: boolean = true
-  ): THREE.Sprite | null => {
-    const dir = (spot.direction || '').toLowerCase();
-    const cacheKey = `${dir}_${isPrimaryNextStep ? 'blue_active_v5_round' : 'normal_v5_round'}_${isTargetReady ? 'ready' : 'loading'}`;
+  const getSharedChevronTexture = (): THREE.CanvasTexture => {
+    if (sharedChevronTextureRef.current) {
+      return sharedChevronTextureRef.current;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, 512, 256);
 
-    let texture = chevronTextureCacheRef.current.get(cacheKey);
-
-    if (!texture) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-
-      const cx = 256;
-      const cy = 256;
-
-      // ─── Beautiful Round Disc Navigation Arrow ───
-
-      // 1. Soft ground shadow beneath the disc
+      // Draw clean forward-pointing chevron
+      // Apex at top center (256, 32), legs extending to (64, 210) and (448, 210)
       ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // 1. Thin crisp white outline (about 5.5% of texture width)
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 28;
       ctx.beginPath();
-      ctx.ellipse(cx, cy + 18, 145, 60, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.filter = 'blur(18px)';
-      ctx.fill();
-      ctx.filter = 'none';
-      ctx.restore();
-
-      // 2. Outer neon glow ring
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 130, 56, 0, 0, Math.PI * 2);
-      ctx.fillStyle = !isTargetReady
-        ? 'rgba(148, 163, 184, 0.2)'
-        : isPrimaryNextStep
-        ? 'rgba(0, 125, 252, 0.7)'
-        : 'rgba(56, 189, 248, 0.35)';
-      ctx.filter = isPrimaryNextStep ? 'blur(20px)' : 'blur(12px)';
-      ctx.fill();
-      ctx.filter = 'none';
-      ctx.restore();
-
-      // 3. Main disc body — gradient filled oval (perspective-squished circle)
-      ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 115, 50, 0, 0, Math.PI * 2);
-
-      const discGrad = ctx.createRadialGradient(cx, cy - 8, 10, cx, cy, 115);
-      if (isPrimaryNextStep) {
-        discGrad.addColorStop(0, '#1e90ff');   // Dodger Blue center
-        discGrad.addColorStop(0.4, '#0070e0'); // Rich Blue
-        discGrad.addColorStop(0.8, '#004fb5'); // Deep Blue
-        discGrad.addColorStop(1, '#003380');   // Darkest Blue edge
-      } else {
-        discGrad.addColorStop(0, '#1a2744');   // Dark Slate center
-        discGrad.addColorStop(0.5, '#0f1a2e'); // Deep Navy
-        discGrad.addColorStop(1, '#060b14');   // Near-Black edge
-      }
-      ctx.fillStyle = discGrad;
-      ctx.fill();
-
-      // 4. Crisp outer ring stroke
-      ctx.strokeStyle = isPrimaryNextStep ? '#ffffff' : '#38bdf8';
-      ctx.lineWidth = isPrimaryNextStep ? 5.5 : 3.5;
-      ctx.shadowColor = isPrimaryNextStep ? '#0080ff' : '#38bdf8';
-      ctx.shadowBlur = isPrimaryNextStep ? 20 : 8;
+      ctx.moveTo(76, 210);
+      ctx.lineTo(256, 46);
+      ctx.lineTo(436, 210);
       ctx.stroke();
-      ctx.restore();
 
-      // 5. Inner subtle ring for depth
-      ctx.save();
+      // 2. Solid, stronger blue fill (#1E88FF)
+      ctx.strokeStyle = '#1E88FF';
+      ctx.lineWidth = 22;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, 98, 42, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = isPrimaryNextStep ? 'rgba(255, 255, 255, 0.15)' : 'rgba(56, 189, 248, 0.12)';
-      ctx.lineWidth = 1.5;
+      ctx.moveTo(76, 210);
+      ctx.lineTo(256, 46);
+      ctx.lineTo(436, 210);
       ctx.stroke();
-      ctx.restore();
-
-      // 6. Beautiful forward chevron arrow inside the disc
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(1.0, 0.44); // Match disc perspective
-
-      if (isPrimaryNextStep) {
-        // Primary: Double forward chevrons (bright white, glowing)
-        ctx.strokeStyle = '#ffffff';
-        ctx.shadowColor = '#bae6fd';
-        ctx.shadowBlur = 10;
-        ctx.lineWidth = 7;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        // Front chevron
-        ctx.beginPath();
-        ctx.moveTo(-38, 10);
-        ctx.lineTo(0, -38);
-        ctx.lineTo(38, 10);
-        ctx.stroke();
-
-        // Rear chevron (smaller)
-        ctx.lineWidth = 5.5;
-        ctx.globalAlpha = 0.7;
-        ctx.beginPath();
-        ctx.moveTo(-28, 42);
-        ctx.lineTo(0, 2);
-        ctx.lineTo(28, 42);
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
-      } else {
-        // Normal: Single chevron (sky blue)
-        ctx.strokeStyle = '#38bdf8';
-        ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = 6;
-        ctx.lineWidth = 5.5;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        ctx.beginPath();
-        ctx.moveTo(-34, 16);
-        ctx.lineTo(0, -28);
-        ctx.lineTo(34, 16);
-        ctx.stroke();
-      }
 
       ctx.restore();
-
-      texture = new THREE.CanvasTexture(canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearFilter;
-      chevronTextureCacheRef.current.set(cacheKey, texture);
     }
 
-    const spriteMat = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      opacity: isTargetReady ? 1.0 : 0.38,
-    });
-    const sprite = new THREE.Sprite(spriteMat);
-    const isMobileDevice =
-      typeof window !== 'undefined' &&
-      (window.innerWidth <= 768 ||
-        /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-        Boolean((window as any).Capacitor));
-
-    const widthScale = isMobileDevice
-      ? isPrimaryNextStep ? 130 : 105
-      : isPrimaryNextStep ? 105 : 84;
-    const heightScale = isMobileDevice
-      ? isPrimaryNextStep ? 90 : 72
-      : isPrimaryNextStep ? 72 : 58;
-    sprite.scale.set(widthScale, heightScale, 1);
-    return sprite;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    sharedChevronTextureRef.current = texture;
+    return texture;
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -1473,10 +1444,56 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
         if (Math.abs(headingNorm - lastHeadingStateRef.current) >= 1) {
           lastHeadingStateRef.current = headingNorm;
           const nowHeadingTime = performance.now();
-          if (nowHeadingTime - lastHeadingUpdateTimeRef.current > 120) {
+          if (nowHeadingTime - lastHeadingUpdateTimeRef.current > 100) {
             lastHeadingUpdateTimeRef.current = nowHeadingTime;
             setCurrentHeading(headingNorm);
           }
+        }
+
+        // Ripple animation for active route chevron trail (soft forward ripple ~1.2s cycle, static if reduced motion)
+        if (
+          isRouteActive &&
+          !isArrived &&
+          activeChevronTrailMeshesRef.current.length > 0 &&
+          !prefersReducedMotion &&
+          isDocumentVisibleRef.current &&
+          targetNextPathYaw !== null
+        ) {
+          const nowSec = performance.now() / 1000;
+          const trailElements = computeChevronTrail({
+            yaw: targetNextPathYaw,
+            timeSeconds: nowSec,
+            reducedMotion: false,
+          });
+          trailElements.forEach((elem, idx) => {
+            const mesh = activeChevronTrailMeshesRef.current[idx];
+            if (mesh && mesh.material) {
+              (mesh.material as THREE.MeshBasicMaterial).opacity = elem.opacity;
+            }
+          });
+        }
+
+        // Throttled Direction Hint Computation with Hysteresis (at most 10 times per second, avoids per-frame React updates)
+        if (targetNextPathYaw !== null && !isArrived && isRouteActive) {
+          const nowHintTime = performance.now();
+          if (nowHintTime - lastHintComputeTimeRef.current >= 100) {
+            lastHintComputeTimeRef.current = nowHintTime;
+            const hint = getDirectionHintWithHysteresis(
+              headingNorm,
+              targetNextPathYaw,
+              wasShowingHintRef.current,
+              50,
+              35
+            );
+            wasShowingHintRef.current = hint.action !== 'ON_TRACK';
+            setDirectionHint((prev) => {
+              if (prev?.action === hint.action && prev?.side === hint.side) return prev;
+              return hint;
+            });
+          }
+        } else if (directionHint !== null) {
+          wasShowingHintRef.current = false;
+          setDirectionHint(null);
         }
 
         // Throttled camera orientation persistence during active user pan
@@ -1645,6 +1662,15 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       }
       nadirBlurRef.current?.dispose();
       nadirBlurRef.current = null;
+      activeChevronTrailMeshesRef.current.forEach((mesh) => {
+        mesh.geometry.dispose();
+        if (mesh.material) {
+          (mesh.material as THREE.Material).dispose();
+        }
+      });
+      activeChevronTrailMeshesRef.current = [];
+      sharedChevronTextureRef.current?.dispose();
+      sharedChevronTextureRef.current = null;
       rendererRef.current?.dispose();
     };
   }, []);
@@ -1801,46 +1827,70 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
         fadeMesh.visible = true;
         nadirBlurRef.current?.startFade(tex);
 
-        const startTime = performance.now();
-        const duration = 180; // 180ms fast crossfade (opacity only, no rotation)
+        const prefersReducedMotion = typeof window !== 'undefined' &&
+          window.matchMedia &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const duration = prefersReducedMotion ? 0 : 200; // <= 250ms cross-fade during active route, 0ms if reduced motion
 
-        const animateFade = (now: number) => {
-          const elapsed = now - startTime;
-          const progress = Math.min(elapsed / duration, 1.0);
-          // Simple ease-out quad for fast fade-in
-          const ease = 1 - (1 - progress) * (1 - progress);
-
+        if (duration === 0) {
+          if (baseMesh) {
+            const bMat = baseMesh.material as THREE.MeshBasicMaterial;
+            bMat.color.setHex(0xffffff);
+            bMat.map = tex;
+            bMat.needsUpdate = true;
+          }
           if (fadeMesh) {
-            (fadeMesh.material as THREE.MeshBasicMaterial).opacity = ease;
+            fadeMesh.visible = false;
+            (fadeMesh.material as THREE.MeshBasicMaterial).opacity = 0;
           }
-          nadirBlurRef.current?.setFadeProgress(ease);
+          nadirBlurRef.current?.setTexture(tex);
+          setIsTransitioning(false);
+          setTransitionLocked(false);
+          commitCurrentPanorama(panorama.id, {
+            yaw: targetHeading,
+            pitch: targetLatRef.current,
+            fov: cameraRef.current?.fov || 72,
+          });
+        } else {
+          const startTime = performance.now();
+          const animateFade = (now: number) => {
+            const elapsed = now - startTime;
+            const progress = Math.min(elapsed / duration, 1.0);
+            // Simple ease-out quad for fast fade-in
+            const ease = 1 - (1 - progress) * (1 - progress);
 
-          if (progress < 1.0) {
-            requestAnimationFrame(animateFade);
-          } else {
-            // Finalize: swap texture to base sphere
-            if (baseMesh) {
-              const bMat = baseMesh.material as THREE.MeshBasicMaterial;
-              bMat.color.setHex(0xffffff);
-              bMat.map = tex;
-              bMat.needsUpdate = true;
-            }
             if (fadeMesh) {
-              fadeMesh.visible = false;
-              (fadeMesh.material as THREE.MeshBasicMaterial).opacity = 0;
+              (fadeMesh.material as THREE.MeshBasicMaterial).opacity = ease;
             }
-            nadirBlurRef.current?.endFade(tex);
-            setIsTransitioning(false);
-            setTransitionLocked(false);
-            commitCurrentPanorama(panorama.id, {
-              yaw: targetHeading,
-              pitch: targetLatRef.current,
-              fov: cameraRef.current?.fov || 72,
-            });
-          }
-        };
+            nadirBlurRef.current?.setFadeProgress(ease);
 
-        requestAnimationFrame(animateFade);
+            if (progress < 1.0) {
+              requestAnimationFrame(animateFade);
+            } else {
+              // Finalize: swap texture to base sphere
+              if (baseMesh) {
+                const bMat = baseMesh.material as THREE.MeshBasicMaterial;
+                bMat.color.setHex(0xffffff);
+                bMat.map = tex;
+                bMat.needsUpdate = true;
+              }
+              if (fadeMesh) {
+                fadeMesh.visible = false;
+                (fadeMesh.material as THREE.MeshBasicMaterial).opacity = 0;
+              }
+              nadirBlurRef.current?.endFade(tex);
+              setIsTransitioning(false);
+              setTransitionLocked(false);
+              commitCurrentPanorama(panorama.id, {
+                yaw: targetHeading,
+                pitch: targetLatRef.current,
+                fov: cameraRef.current?.fov || 72,
+              });
+            }
+          };
+
+          requestAnimationFrame(animateFade);
+        }
       }
     };
 
@@ -2034,17 +2084,29 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       }
     }
 
-    // Clear previous waypoints (dispose materials and non-cached textures to free GPU VRAM)
+    // Clear previous waypoints (dispose geometries, materials and textures)
+    if (activeChevronTrailMeshesRef.current.length > 0) {
+      activeChevronTrailMeshesRef.current.forEach((mesh) => {
+        mesh.geometry.dispose();
+        if (mesh.material) {
+          (mesh.material as THREE.Material).dispose();
+        }
+      });
+      activeChevronTrailMeshesRef.current = [];
+    }
+
     const wpGroup = waypointsGroupRef.current;
     while (wpGroup.children.length > 0) {
-      const child = wpGroup.children[0] as THREE.Sprite;
+      const child = wpGroup.children[0] as any;
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
       if (child.material) {
-        const mat = child.material as THREE.SpriteMaterial;
-        // Only dispose textures NOT in the chevron cache (those are reused)
-        if (mat.map && !Array.from(chevronTextureCacheRef.current.values()).includes(mat.map)) {
-          mat.map.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m: THREE.Material) => m.dispose());
+        } else {
+          child.material.dispose();
         }
-        mat.dispose();
       }
       wpGroup.remove(child);
     }
@@ -2062,7 +2124,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
     }
 
     // ─────────────────────────────────────────────────────────
-    // A. 3D Google Street View Ground-Projected Navigation Chevrons
+    // A. 3D Ground-Projected Route Chevron Trail (4 Meshes along route direction)
     // ─────────────────────────────────────────────────────────
     (panorama.hotspots || []).forEach((spot) => {
       const isVisible = shouldRenderNavigationArrow({
@@ -2078,67 +2140,77 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       }
 
       const isPrimaryNextStep = true;
-
       const isTargetReady = PanoramaResourceManager.isPanoramaReady(spot.targetPanoId);
-      const sprite = createStreetViewGroundChevronSprite(spot, isPrimaryNextStep, isTargetReady);
-      if (sprite) {
-        // Spatial positioning matching Google Street View ground geometry
-        const dir = (spot.direction || '').toLowerCase();
-        const isBackward = dir === 'u-turn' || dir === 'backward' || dir === 'back';
-        const isTurn = dir === 'left' || dir === 'slight-left' || dir === 'right' || dir === 'slight-right';
 
-        // Backward arrows are closer/lower; forward arrows are along the road
-        const isMobileDevice =
-          typeof window !== 'undefined' &&
-          (window.innerWidth <= 768 ||
-            /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-            Boolean((window as any).Capacitor));
+      const trailElements = computeChevronTrail({
+        yaw: spot.yaw,
+        count: 4,
+        timeSeconds: performance.now() / 1000,
+        reducedMotion: prefersReducedMotion,
+      });
 
-        const rawPitch = (spot as any).pitch;
-        const pitch = (rawPitch !== undefined && rawPitch !== -28 && rawPitch !== -25)
-          ? Math.max(-20, rawPitch)
-          : isBackward ? -19 : isTurn ? -16 : -14;
+      const sharedTexture = getSharedChevronTexture();
+      const radYaw = THREE.MathUtils.degToRad(spot.yaw);
 
-        const rawDist = (spot as any).distance;
-        const dist = rawDist !== undefined
-          ? rawDist
-          : isMobileDevice
-          ? (isBackward ? 175 : isTurn ? 195 : 225)
-          : (isBackward ? 195 : isTurn ? 215 : 245);
+      // Ground orientation basis from shared single source of truth (apex points along route, front face upward, 28° ground tilt)
+      const chevronTransform = computeChevronTransform(spot.yaw, 28);
+      const rotMatrix = new THREE.Matrix4().fromArray(chevronTransform.elements);
 
-        const radYaw = THREE.MathUtils.degToRad(spot.yaw);
-        const radPitch = THREE.MathUtils.degToRad(pitch);
+      // Restored previous clean dimensions
+      const baseWidth = 34;
+      const baseHeight = 17;
 
-        const x = dist * Math.cos(radPitch) * Math.sin(radYaw);
-        const y = dist * Math.sin(radPitch);
-        const z = dist * Math.cos(radPitch) * Math.cos(radYaw);
+      const trailMeshes: THREE.Mesh[] = [];
 
-        sprite.position.set(x, y, z);
-        sprite.userData = {
+      trailElements.forEach((elem) => {
+        const radPitch = THREE.MathUtils.degToRad(elem.pitch);
+        const x = elem.distance * Math.cos(radPitch) * Math.sin(radYaw);
+        const y = elem.distance * Math.sin(radPitch);
+        const z = elem.distance * Math.cos(radPitch) * Math.cos(radYaw);
+
+        const geo = new THREE.PlaneGeometry(baseWidth * elem.scale, baseHeight * elem.scale);
+        const mat = new THREE.MeshBasicMaterial({
+          map: sharedTexture,
+          transparent: true,
+          opacity: elem.opacity,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y, z);
+        mesh.setRotationFromMatrix(rotMatrix);
+        mesh.userData = {
           hotspot: spot,
           isWaypoint: true,
           isPrimaryNextStep,
           isTargetReady,
+          trailIndex: elem.index,
         };
-        wpGroup.add(sprite);
+        wpGroup.add(mesh);
+        trailMeshes.push(mesh);
+      });
 
-        // Render the floating distance pill capsule directly above the chevron when navigating!
-        if (isRouteActive && isPrimaryNextStep) {
-          const distMeters = currentStep?.distanceMeters || 12;
-          const badgePitch = pitch + 7.5;
-          const badgeDist = dist - 25;
-          const radBadgeYaw = THREE.MathUtils.degToRad(spot.yaw);
-          const radBadgePitch = THREE.MathUtils.degToRad(badgePitch);
-          const bx = badgeDist * Math.cos(radBadgePitch) * Math.sin(radBadgeYaw);
-          const by = badgeDist * Math.sin(radBadgePitch);
-          const bz = badgeDist * Math.cos(radBadgePitch) * Math.cos(radBadgeYaw);
+      activeChevronTrailMeshesRef.current = trailMeshes;
 
-          const distBadge = createDistanceBadgeSprite(distMeters);
-          distBadge.position.set(bx, by, bz);
-          distBadge.userData = { isDistanceBadge: true };
-          wpGroup.add(distBadge);
-        }
-      }
+      // Large invisible tap target plane covering the entire trail so clicking advances the route
+      const tapGeo = new THREE.PlaneGeometry(45, 140);
+      const tapMat = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+      const tapMesh = new THREE.Mesh(tapGeo, tapMat);
+      const tapPitch = THREE.MathUtils.degToRad(-17);
+      const tapX = 180 * Math.cos(tapPitch) * Math.sin(radYaw);
+      const tapY = 180 * Math.sin(tapPitch);
+      const tapZ = 180 * Math.cos(tapPitch) * Math.cos(radYaw);
+      tapMesh.position.set(tapX, tapY, tapZ);
+      tapMesh.setRotationFromMatrix(rotMatrix);
+      tapMesh.userData = {
+        hotspot: spot,
+        isWaypoint: true,
+        isPrimaryNextStep,
+        isTargetReady,
+        isTapTarget: true,
+      };
+      wpGroup.add(tapMesh);
     });
 
     // ─────────────────────────────────────────────────────────
@@ -2691,32 +2763,188 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
         className={`absolute inset-0 bg-slate-950 pointer-events-none transition-opacity duration-300 opacity-0`}
       />
 
-      {/* Floating Viewport Zoom Controls (+ / -) */}
-      <div className="absolute right-3.5 sm:right-5 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-2 pointer-events-auto select-none">
-        <button
-          onClick={handleZoomIn}
-          className="w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 shadow-xl border border-slate-200/90 backdrop-blur-md flex items-center justify-center transition-all active:scale-90 cursor-pointer group"
-          title="Zoom In"
-        >
-          <Plus size={18} className="stroke-[2.5] text-slate-700 group-hover:text-blue-600 transition-colors" />
-        </button>
-        <button
-          onClick={handleZoomOut}
-          className="w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 shadow-xl border border-slate-200/90 backdrop-blur-md flex items-center justify-center transition-all active:scale-90 cursor-pointer group"
-          title="Zoom Out (Wider View)"
-        >
-          <Minus size={18} className="stroke-[2.5] text-slate-700 group-hover:text-blue-600 transition-colors" />
-        </button>
-      </div>
+      {/* Floating Viewport Zoom Controls (+ / -) - Hidden during active route */}
+      {(!isRouteActive || isArrived) && (
+        <div className="absolute right-3.5 sm:right-5 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-2 pointer-events-auto select-none">
+          <button
+            onClick={handleZoomIn}
+            className="w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 shadow-xl border border-slate-200/90 backdrop-blur-md flex items-center justify-center transition-all active:scale-90 cursor-pointer group"
+            title="Zoom In"
+            aria-label="Zoom In"
+          >
+            <Plus size={18} className="stroke-[2.5] text-slate-700 group-hover:text-blue-600 transition-colors" />
+          </button>
+          <button
+            onClick={handleZoomOut}
+            className="w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 shadow-xl border border-slate-200/90 backdrop-blur-md flex items-center justify-center transition-all active:scale-90 cursor-pointer group"
+            title="Zoom Out (Wider View)"
+            aria-label="Zoom Out"
+          >
+            <Minus size={18} className="stroke-[2.5] text-slate-700 group-hover:text-blue-600 transition-colors" />
+          </button>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────
           WAYCAMPUS NAVIGATION TOP BAR & DESTINATION HUD (MATCHING REFERENCE)
       ───────────────────────────────────────────────────────── */}
-      {isNavigating ? (
-        <div className="absolute top-0 left-0 right-0 z-30 pointer-events-auto animate-fade-in">
-          {/* Top Branded Header Bar */}
+      {isNavigating && isRouteActive && currentStep && !isArrived ? (
+        /* Immersive Route Mode: Minimal Top Next-Step Card + Round Exit (X) Button (Matching user mockup) */
+        <div className="absolute top-0 left-0 right-0 z-30 pointer-events-none pt-safe p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-3 max-w-lg mx-auto">
+            {/* 1. Next-Step Card (Top, Safe-Area Aware, Compact <= 64px, Tap expands full step list) */}
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Toggle full step list"
+              onClick={() => setIsStepListExpanded((prev) => !prev)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setIsStepListExpanded((prev) => !prev);
+                }
+              }}
+              className="pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200/80 px-3.5 py-2 flex-1 min-w-0 transition-all active:scale-[0.99] cursor-pointer flex flex-col justify-between max-h-[64px]"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Round Turn Icon Circle */}
+                <div className="w-9 h-9 rounded-full bg-blue-50 border border-blue-200/70 text-[#007dfc] flex items-center justify-center shrink-0">
+                  {currentStep.actionType === 'TURN_LEFT' ? (
+                    <CornerUpLeft size={18} className="stroke-[2.5]" />
+                  ) : currentStep.actionType === 'TURN_RIGHT' ? (
+                    <CornerUpRight size={18} className="stroke-[2.5]" />
+                  ) : currentStep.actionType === 'BACKWARD' ? (
+                    <ArrowDown size={18} className="stroke-[2.5]" />
+                  ) : currentStep.actionType === 'STAIRS' ? (
+                    <span className="text-base">🪜</span>
+                  ) : currentStep.actionType === 'LIFT' ? (
+                    <span className="text-base">🛗</span>
+                  ) : currentStep.actionType === 'ARRIVE' ? (
+                    <CheckCircle2 size={18} className="stroke-[2.5] text-emerald-600" />
+                  ) : (
+                    <ArrowUp size={18} className="stroke-[2.5]" />
+                  )}
+                </div>
+
+                {/* Instruction & Distance / Steps Left */}
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="text-base font-semibold text-slate-900 truncate leading-snug" aria-live="polite">
+                    {currentStep.instruction || 'Continue straight'}
+                  </p>
+                  <p className="text-xs font-normal text-slate-600 truncate leading-tight mt-0.5">
+                    {currentStep.distanceMeters ? `${currentStep.distanceMeters} m · ` : ''}
+                    {formatRemainingSteps(
+                      Math.max(0, (activeNavigationRoute?.steps?.length || 1) - currentRouteIndex - 1),
+                      isArrived
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Thin Progress Line */}
+              <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-[#007dfc] rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(5, Math.round(((currentRouteIndex + 1) / (activeNavigationRoute?.steps?.length || 1)) * 100))
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Top Right: Small round exit (X) button (44px target) inside safe area */}
+            <div className="flex items-center gap-2 shrink-0 pointer-events-auto">
+              {import.meta.env.DEV && (
+                <button
+                  onClick={() => {
+                    if (onOpenBugReport) onOpenBugReport();
+                    else {
+                      openReportModal({
+                        currentPanoramaId: panorama.id,
+                        currentNodeId: panorama.id,
+                        description: `Navigation issue at Step ${currentRouteIndex + 1} (Node: ${panorama.id})`,
+                      });
+                    }
+                  }}
+                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-white/95 backdrop-blur-md shadow-md border border-slate-200/80 flex items-center justify-center text-[#007dfc] hover:bg-slate-50 active:scale-95 transition-all cursor-pointer"
+                  title="Report Navigation Issue (Dev Only)"
+                  aria-label="Report Navigation Issue"
+                >
+                  <Bug size={18} className="stroke-[2.2]" />
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  if (onExitNavigation) onExitNavigation();
+                  else exitNavigation();
+                }}
+                className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-white/95 backdrop-blur-md shadow-md border border-slate-200/80 flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer"
+                title="Exit Navigation"
+                aria-label="Exit Navigation"
+              >
+                <X size={20} className="stroke-[2.5]" />
+              </button>
+            </div>
+          </div>
+
+          {/* Expanded Step List */}
+          {isStepListExpanded && activeNavigationRoute?.steps && (
+            <div className="pt-2 pointer-events-auto max-w-lg mx-auto animate-slide-up">
+              <div
+                onWheel={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200 p-3 max-h-60 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain space-y-2 text-left"
+              >
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                    Full Route Steps ({activeNavigationRoute.steps.length})
+                  </span>
+                  <button
+                    onClick={() => setIsStepListExpanded(false)}
+                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"
+                    aria-label="Close Step List"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {activeNavigationRoute.steps.map((st, idx) => {
+                  const isCurrent = idx === currentRouteIndex;
+                  const isPast = idx < currentRouteIndex;
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-2.5 p-2 rounded-xl text-xs transition-colors ${
+                        isCurrent
+                          ? 'bg-blue-50/80 border border-blue-200 font-bold text-blue-900'
+                          : isPast
+                          ? 'text-slate-400 opacity-60'
+                          : 'text-slate-700'
+                      }`}
+                    >
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 bg-slate-100 text-slate-600">
+                        {isPast ? '✓' : idx + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate leading-tight">{st.instruction || `Step ${idx + 1}`}</p>
+                        {st.distanceMeters ? (
+                          <span className="text-[10px] font-medium text-slate-400">{st.distanceMeters} m</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : isNavigating ? (
+        /* Regular navigation header bar when not actively on a step (or arrived / exiting) */
+        <div className="absolute top-0 left-0 right-0 z-30 pointer-events-auto animate-fade-in pt-safe">
           <div className="bg-white/95 backdrop-blur-md border-b border-slate-100/90 px-3.5 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between shadow-xs">
-            {/* Left: Official Christ College Crest & Title */}
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
               <img
                 src="/christ_college_official_logo.png"
@@ -2733,7 +2961,6 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
               </div>
             </div>
 
-            {/* Center: WayCampus Indoor Navigation */}
             <div className="flex flex-col items-center text-center px-1">
               <h1 className="text-base sm:text-lg font-black tracking-tight leading-none">
                 <span className="text-[#0f2744]">Way</span>
@@ -2744,28 +2971,27 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
               </span>
             </div>
 
-            {/* Right: Circular Close Button */}
             <button
               onClick={() => {
                 if (onExitNavigation) onExitNavigation();
                 else exitNavigation();
               }}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white shadow-md border border-slate-200/80 flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all shrink-0 cursor-pointer"
+              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-white shadow-md border border-slate-200/80 flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all shrink-0 cursor-pointer"
               title="Close Navigation"
+              aria-label="Close Navigation"
             >
-              <X size={18} className="stroke-[2.5]" />
+              <X size={20} className="stroke-[2.5]" />
             </button>
           </div>
 
-          {/* Sub-Header Floating Action Row */}
-          <div className="px-3 sm:px-4 pt-3 flex items-start justify-between gap-2 pointer-events-none">
-            {/* Destination Pill / Card */}
+          {/* Sub-Header Destination Pill */}
+          <div className="px-3 sm:px-4 pt-2.5 flex items-start justify-between gap-2.5 pointer-events-none">
             <div
               onClick={() => {
                 if (onExitNavigation) onExitNavigation();
                 else exitNavigation();
               }}
-              className="pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200/80 px-3 py-2 flex items-center gap-2.5 max-w-[240px] sm:max-w-xs transition-all active:scale-[0.98] cursor-pointer"
+              className="pointer-events-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200/80 px-3 py-2 flex items-center gap-2.5 max-w-[240px] sm:max-w-xs transition-all active:scale-[0.98] cursor-pointer min-h-[44px]"
               title="Exit Route"
             >
               <ChevronLeft size={18} className="text-[#007dfc] shrink-0 stroke-[2.5]" />
@@ -2779,38 +3005,30 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
                 <p className="text-xs sm:text-sm font-black text-slate-900 truncate leading-tight mt-0.5">
                   {activeNavigationRoute?.destinationTitle || selectedDestination?.title || destinationLabel || 'Destination'}
                 </p>
-                <p className="text-[10px] font-medium text-slate-500 truncate leading-tight">
-                  {selectedDestination?.buildingName || (activeNavigationRoute as any)?.destinationBuildingName || panorama.buildingName || 'Campus Building'}
-                </p>
               </div>
             </div>
 
-            {/* Right Action Button (Bug Report) */}
-            <div className="pointer-events-auto flex items-center gap-2.5 shrink-0">
-
-              {/* Bug Report */}
-              <button
-                onClick={() => {
-                  if (onOpenBugReport) onOpenBugReport();
-                  else {
-                    openReportModal({
-                      currentPanoramaId: panorama.id,
-                      currentNodeId: panorama.id,
-                      description: `Navigation issue during route at Step ${currentRouteIndex + 1}/${activeNavigationRoute?.steps?.length || 1} (Node: ${panorama.id})`,
-                    });
-                  }
-                }}
-                className="flex flex-col items-center group active:scale-95 transition-transform cursor-pointer"
-                title="Report Navigation Issue"
-              >
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white shadow-lg border border-slate-200/80 flex items-center justify-center text-[#007dfc] group-hover:bg-blue-50 transition-colors">
+            {import.meta.env.DEV && (
+              <div className="pointer-events-auto flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    if (onOpenBugReport) onOpenBugReport();
+                    else {
+                      openReportModal({
+                        currentPanoramaId: panorama.id,
+                        currentNodeId: panorama.id,
+                        description: `Navigation issue (Node: ${panorama.id})`,
+                      });
+                    }
+                  }}
+                  className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-white shadow-lg border border-slate-200/80 flex items-center justify-center text-[#007dfc] hover:bg-blue-50 active:scale-95 transition-all cursor-pointer"
+                  title="Report Navigation Issue (Dev Only)"
+                  aria-label="Report Navigation Issue"
+                >
                   <Bug size={18} className="stroke-[2.2]" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-700 tracking-tight mt-1">
-                  Bug Report
-                </span>
-              </button>
-            </div>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : !hideTopControls && (
@@ -2902,8 +3120,12 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       {/* ─────────────────────────────────────────────────────────
           SECTION 19: NAVIGATION DEBUG PANEL (Development Only)
       ───────────────────────────────────────────────────────── */}
-      {isDebugMode && (
-        <div className="absolute top-16 right-2.5 sm:right-4 z-40 bg-slate-950/95 border border-amber-500/40 rounded-2xl p-3 shadow-2xl backdrop-blur-xl text-left max-w-[280px] sm:max-w-xs w-full pointer-events-auto text-[10px] sm:text-[11px] font-mono text-slate-200 max-h-[75dvh] overflow-y-auto">
+      {import.meta.env.DEV && isDebugMode && (
+        <div
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          className="absolute top-16 right-2.5 sm:right-4 z-40 bg-slate-950/95 border border-amber-500/40 rounded-2xl p-3 shadow-2xl backdrop-blur-xl text-left max-w-[280px] sm:max-w-xs w-full pointer-events-auto text-[10px] sm:text-[11px] font-mono text-slate-200 max-h-[75dvh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain"
+        >
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
             <span className="font-bold text-amber-400 flex items-center gap-1.5">
               <Bug size={13} /> Nav Debugger
@@ -3014,6 +3236,25 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────
+          DIRECTION HINT CHIP (SCREEN EDGE, COMPACT, HYSTERESIS: >50° to show, <35° to hide)
+      ───────────────────────────────────────────────────────── */}
+      {isRouteActive && !isArrived && directionHint && directionHint.action !== 'ON_TRACK' && (
+        <div
+          className={`fixed z-30 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-200 animate-fade-in ${
+            directionHint.side === 'left' ? 'left-3 sm:left-4' : 'right-3 sm:right-4'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="bg-slate-900/85 text-white backdrop-blur-md border border-white/20 rounded-full px-3 py-1.5 shadow-xl flex items-center gap-1.5 text-xs font-semibold pointer-events-auto">
+            {directionHint.side === 'left' && <CornerUpLeft size={14} className="text-[#007dfc] stroke-[2.5]" />}
+            <span>{directionHint.label}</span>
+            {directionHint.side === 'right' && <CornerUpRight size={14} className="text-[#007dfc] stroke-[2.5]" />}
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────
           WAYCAMPUS BOTTOM GUIDANCE CARD (MATCHING REFERENCE)
       ───────────────────────────────────────────────────────── */}
       <div className="absolute bottom-0 left-0 right-0 z-30 pb-safe pointer-events-auto">
@@ -3025,127 +3266,114 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
           </div>
         )}
 
-        {/* Destination Arrival Card */}
+        {/* 4. Destination Arrival Card */}
         {isArrived ? (
-          <div className="rounded-t-[32px] sm:rounded-3xl bg-white p-4 sm:p-5 shadow-2xl border-t border-slate-100 max-w-lg mx-auto w-full flex items-center justify-between gap-3 animate-scale-up">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl font-black shrink-0 border border-emerald-200">
+          <div className="rounded-t-[32px] sm:rounded-3xl bg-white p-4 sm:p-5 shadow-2xl border-t border-slate-100 max-w-lg mx-auto w-full flex flex-col gap-3.5 animate-scale-up text-left">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl font-black shrink-0 border border-emerald-200">
                 ✓
               </div>
-              <div className="min-w-0 text-left">
+              <div className="min-w-0 flex-1">
                 <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 block leading-none">
-                  Destination Arrived
+                  You've arrived
                 </span>
-                <h3 className="text-sm sm:text-base font-black text-slate-900 truncate mt-1">
-                  {activeNavigationRoute?.destinationTitle || destinationLabel || panorama.name}
+                <h3 className="text-base sm:text-lg font-black text-slate-900 truncate mt-1">
+                  {arrivalDetails.placeName}
                 </h3>
                 <p className="text-xs text-slate-500 truncate mt-0.5">
-                  You have safely arrived at your destination.
+                  {arrivalDetails.buildingName} • {arrivalDetails.floorLabel}
                 </p>
+
+                {/* Faculty Live Presence Status Badge */}
+                {arrivalDetails.isTeacher && facultyArrivalStatus && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border bg-slate-50 border-slate-200 text-slate-700">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        facultyArrivalStatus.status === 'AVAILABLE'
+                          ? 'bg-emerald-500'
+                          : facultyArrivalStatus.status === 'IN_CLASS'
+                          ? 'bg-blue-500'
+                          : facultyArrivalStatus.status === 'BUSY'
+                          ? 'bg-amber-500'
+                          : facultyArrivalStatus.status === 'ON_LEAVE'
+                          ? 'bg-rose-500'
+                          : 'bg-slate-400'
+                      }`}
+                    />
+                    <span>
+                      {facultyArrivalStatus.status === 'AVAILABLE'
+                        ? 'Available in Cabin'
+                        : facultyArrivalStatus.status === 'IN_CLASS'
+                        ? 'Currently In Class'
+                        : facultyArrivalStatus.status === 'BUSY'
+                        ? 'Busy / Meeting'
+                        : facultyArrivalStatus.status === 'ON_LEAVE'
+                        ? 'On Leave'
+                        : 'Status Not Marked'}
+                    </span>
+                    {facultyArrivalStatus.locationName && (
+                      <span className="text-slate-400 font-normal">
+                        ({facultyArrivalStatus.locationName})
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-            <button
-              onClick={() => {
-                if (onExitNavigation) onExitNavigation();
-                else exitNavigation();
-              }}
-              className="px-5 py-2.5 rounded-full bg-[#007dfc] hover:bg-blue-600 active:bg-blue-700 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
-            >
-              Done
-            </button>
-          </div>
-        ) : isRouteActive && currentStep ? (
-          <div className="rounded-t-[32px] sm:rounded-3xl bg-white p-4 sm:p-5 shadow-2xl border-t border-slate-100 max-w-lg mx-auto w-full space-y-3.5 animate-slide-up">
-            {/* Top Row: Icon, Step/Instruction, Walk Button */}
-            <div className="flex items-center justify-between gap-3">
-              {/* Direction Action Icon */}
-              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-100/70 text-[#007dfc] border border-blue-200/60 flex items-center justify-center shrink-0">
-                {currentStep.actionType === 'TURN_LEFT' ? (
-                  <CornerUpLeft size={24} className="text-[#007dfc] stroke-[2.5]" />
-                ) : currentStep.actionType === 'TURN_RIGHT' ? (
-                  <CornerUpRight size={24} className="text-[#007dfc] stroke-[2.5]" />
-                ) : currentStep.actionType === 'STAIRS' ? (
-                  <span className="text-xl">🪜</span>
-                ) : currentStep.actionType === 'DOOR' ? (
-                  <span className="text-xl">🚪</span>
-                ) : currentStep.actionType === 'BACKWARD' ? (
-                  <ArrowDown size={24} className="text-[#007dfc] stroke-[2.5]" />
-                ) : (
-                  <ArrowUp size={24} className="text-[#007dfc] stroke-[2.5]" />
-                )}
-              </div>
 
-              {/* Step & Instruction */}
-              <div className="min-w-0 flex-1 text-left">
-                <span className="text-[11px] font-black text-[#007dfc] tracking-wide uppercase block leading-none">
-                  STEP {currentRouteIndex + 1}/{activeNavigationRoute?.steps?.length || 1} • {currentStep.distanceMeters || 10} m
-                </span>
-                <h3 className="text-base sm:text-lg font-black text-slate-900 truncate leading-snug mt-1">
-                  {currentStep.actionType === 'TURN_LEFT'
-                    ? 'Turn left'
-                    : currentStep.actionType === 'TURN_RIGHT'
-                    ? 'Turn right'
-                    : currentStep.actionType === 'STAIRS'
-                    ? 'Take stairs'
-                    : currentStep.actionType === 'DOOR'
-                    ? 'Enter doorway'
-                    : 'Continue straight'}
-                </h3>
-                <p className="text-xs sm:text-sm font-medium text-slate-500 truncate leading-tight mt-0.5">
-                  {currentStep.instruction || 'Follow the blue route arrow forward'}
-                </p>
-              </div>
-
-              {/* Walk Button */}
+            {/* Actions: Done and Show route again */}
+            <div className="flex items-center justify-end gap-2.5 pt-1 border-t border-slate-100">
               <button
-                onClick={advanceNavigationStep}
-                disabled={transitionLocked}
-                className="bg-[#007dfc] hover:bg-blue-600 active:bg-blue-700 text-white font-black text-sm sm:text-base px-5 sm:px-6 py-2.5 sm:py-3 rounded-full flex items-center gap-2 shadow-lg shadow-blue-500/25 active:scale-95 disabled:opacity-60 transition-all shrink-0 cursor-pointer"
+                onClick={() => {
+                  if (selectedDestination) {
+                    startNavigationRoute(selectedDestination, activeNavigationRoute?.startNodeId);
+                  } else if (activeNavigationRoute) {
+                    const fallbackDest: SearchResult = {
+                      id: activeNavigationRoute.destinationNodeId,
+                      title: activeNavigationRoute.destinationTitle || 'Destination',
+                      subtitle: (activeNavigationRoute as any).destinationBuildingName || panorama.buildingName || 'Campus Location',
+                      type: 'ROOM',
+                      buildingName: (activeNavigationRoute as any).destinationBuildingName || panorama.buildingName,
+                      nodeId: activeNavigationRoute.destinationNodeId,
+                      floorNumber: typeof activeFloorNumber === 'number' ? activeFloorNumber : 0,
+                    };
+                    startNavigationRoute(fallbackDest, activeNavigationRoute.startNodeId);
+                  }
+                }}
+                className="min-h-[44px] px-4 py-2.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 active:bg-slate-100 text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all cursor-pointer"
               >
-                {transitionLocked ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin text-white" />
-                    <span>Walking</span>
-                  </>
-                ) : (
-                  <>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="12" cy="4" r="2" />
-                      <path d="M15 7h-6a1 1 0 0 0-1 1v5h2v7h2v-7h2V8a1 1 0 0 0-1-1z" />
-                    </svg>
-                    <span>Walk</span>
-                    <ArrowRight size={16} className="stroke-[3]" />
-                  </>
-                )}
+                <RotateCcw size={15} />
+                <span>Show route again</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (onExitNavigation) onExitNavigation();
+                  else exitNavigation();
+                }}
+                className="min-h-[44px] px-6 py-2.5 rounded-full bg-[#007dfc] hover:bg-blue-600 active:bg-blue-700 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer"
+              >
+                Done
               </button>
             </div>
-
-            {/* Bottom Progress Bar Row */}
-            <div className="flex items-center gap-3 pt-1">
-              <div className="flex-1 h-2 bg-blue-100/70 rounded-full overflow-hidden relative">
-                <div
-                  className="h-full bg-[#007dfc] rounded-full transition-all duration-300 ease-out"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.max(
-                        5,
-                        Math.round(((currentRouteIndex + 1) / (activeNavigationRoute?.steps?.length || 1)) * 100)
-                      )
-                    )}%`,
-                  }}
-                />
-              </div>
-              <span className="text-xs font-black text-slate-600 min-w-[34px] text-right font-mono">
-                {Math.min(
-                  100,
-                  Math.max(
-                    0,
-                    Math.round(((currentRouteIndex + 1) / (activeNavigationRoute?.steps?.length || 1)) * 100)
-                  )
-                )}%
-              </span>
-            </div>
+          </div>
+        ) : isRouteActive && currentStep ? (
+          /* One large pill-shaped Walk button at bottom center (Matching user mockup) */
+          <div className="flex justify-center pb-6 sm:pb-8">
+            <button
+              onClick={advanceNavigationStep}
+              disabled={transitionLocked}
+              className="min-h-[44px] min-w-[130px] px-8 py-3 rounded-full bg-[#e8f2fe] hover:bg-[#d8e8fc] active:bg-[#c8deea] border border-[#007dfc] text-slate-900 font-semibold text-base shadow-sm active:scale-95 disabled:opacity-60 transition-all cursor-pointer flex items-center justify-center gap-2"
+              aria-label="Walk to next step"
+            >
+              {transitionLocked ? (
+                <>
+                  <Loader2 size={18} className="animate-spin text-[#007dfc]" />
+                  <span>Walking…</span>
+                </>
+              ) : (
+                <span>Walk</span>
+              )}
+            </button>
           </div>
         ) : null}
       </div>
@@ -3159,8 +3387,10 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
           onClick={() => setSelectedPlaceInfo(null)}
         >
           <div
-            className="bg-slate-900/95 border border-white/15 rounded-3xl p-4 sm:p-5 max-w-md w-full shadow-2xl animate-scale-up max-h-[85dvh] overflow-y-auto overscroll-contain"
+            className="bg-slate-900/95 border border-white/15 rounded-3xl p-4 sm:p-5 max-w-md w-full shadow-2xl animate-scale-up max-h-[85dvh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain"
             onClick={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -3252,7 +3482,11 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[60vh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain pr-1"
+            >
               {CAMPUS_ZONES.map((zone) => (
                 <button
                   key={zone.area}
@@ -3329,7 +3563,11 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
             </div>
 
             {/* Quick Destinations Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[60vh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain pr-1"
+            >
               {FRESHERS_QUICK_TARGETS.map((target) => (
                 <button
                   key={target.id}
@@ -3384,7 +3622,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       {/* ─────────────────────────────────────────────────────────
           DESTINATION ALIGNMENT DEBUG OVERLAY (DEVELOPMENT ONLY)
       ───────────────────────────────────────────────────────── */}
-      {isDebugMode && destinationDebugInfo && isArrived && (
+      {import.meta.env.DEV && isDebugMode && destinationDebugInfo && isArrived && (
         <div className="fixed top-24 left-4 z-50 bg-slate-900/95 border border-amber-500/50 rounded-2xl p-3.5 text-xs text-slate-200 shadow-2xl backdrop-blur-md font-mono pointer-events-none max-w-xs animate-fade-in">
           <div className="font-bold text-amber-400 mb-1.5 flex items-center gap-1.5 border-b border-amber-500/30 pb-1">
             <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />

@@ -43,7 +43,11 @@ export const DestinationPreviewCard: React.FC<DestinationPreviewCardProps> = ({
 
   return (
     <div className="fixed bottom-2 sm:bottom-5 left-2 right-2 sm:left-4 sm:right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-md z-40 animate-slide-up pb-safe pointer-events-auto">
-      <div className="bg-white/98 backdrop-blur-2xl border border-slate-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xl relative overflow-hidden max-h-[46dvh] sm:max-h-[60dvh] overflow-y-auto overscroll-contain text-slate-800">
+      <div
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        className="bg-white/98 backdrop-blur-2xl border border-slate-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xl relative max-h-[46dvh] sm:max-h-[60dvh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain text-slate-800"
+      >
         {/* Subtle Ambient Glow */}
         <div className="absolute -top-16 -right-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -168,7 +172,7 @@ export const DestinationPreviewCard: React.FC<DestinationPreviewCardProps> = ({
         )}
 
         {/* Route Steps Breadcrumb (Google Maps Style) */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-xl py-1 px-2.5 mb-2.5 flex items-center gap-1 overflow-x-auto text-[9px] sm:text-[10px] font-bold text-slate-600 no-scrollbar">
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl py-1 px-2.5 mb-2.5 flex items-center gap-1 overflow-x-auto text-[9px] sm:text-[10px] font-bold text-slate-600 no-scrollbar touch-pan-x">
           <span className="whitespace-nowrap text-slate-400">Start</span>
           <ArrowRight size={10} className="text-[#2563eb] flex-shrink-0" />
           {currentSelectedRoute?.routeDescription ? (

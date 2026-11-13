@@ -543,9 +543,9 @@ export const TourNavigationBox: React.FC<TourNavigationBoxProps> = ({
   return (
     <div className="absolute top-16 left-3 right-3 sm:left-4 sm:right-auto sm:w-96 z-30 pointer-events-auto transition-all duration-200">
       {/* Sleek Floating Box */}
-      <div className="bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden ring-1 ring-black/5">
+      <div className="bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-3xl shadow-2xl overflow-visible ring-1 ring-black/5">
         {/* Box Header Strip */}
-        <div className="px-3.5 py-2.5 bg-slate-50/90 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-3.5 py-2.5 bg-slate-50/90 border-b border-slate-100 flex items-center justify-between rounded-t-3xl">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <Navigation size={13} />
@@ -654,7 +654,11 @@ export const TourNavigationBox: React.FC<TourNavigationBoxProps> = ({
 
                     {/* Suggestions Dropdown */}
                     {isStartFocused && startSuggestions.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 z-40 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto divide-y divide-slate-100">
+                      <div
+                        onWheel={(e) => e.stopPropagation()}
+                        onTouchMove={(e) => e.stopPropagation()}
+                        className="absolute top-full left-0 right-0 z-40 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain divide-y divide-slate-100 pointer-events-auto"
+                      >
                         {startSuggestions.map((item) => {
                           const itemType = item.type || item.category || 'PLACE';
                           const icon = TYPE_ICONS[itemType] || <MapPin size={13} className="text-slate-400" />;
@@ -662,7 +666,8 @@ export const TourNavigationBox: React.FC<TourNavigationBoxProps> = ({
                           return (
                             <div
                               key={item.id}
-                              onMouseDown={() => {
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
                                 setStartDisplayName(item.name);
                                 setStartNodeId(item.nodeId);
                                 setIsManualStartSelected(item.id !== 'current_360_spot');
@@ -778,7 +783,11 @@ export const TourNavigationBox: React.FC<TourNavigationBoxProps> = ({
 
                   {/* Suggestions Dropdown */}
                   {isDestFocused && destSuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 z-40 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto divide-y divide-slate-100">
+                    <div
+                      onWheel={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      className="absolute top-full left-0 right-0 z-40 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain divide-y divide-slate-100 pointer-events-auto"
+                    >
                       {destSuggestions.map((item) => {
                         const itemType = item.type || item.category || 'PLACE';
                         const icon = TYPE_ICONS[itemType] || <MapPin size={13} className="text-slate-400" />;
@@ -786,7 +795,8 @@ export const TourNavigationBox: React.FC<TourNavigationBoxProps> = ({
                         return (
                           <div
                             key={item.id}
-                            onMouseDown={() => {
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
                               setResolvedDest(item);
                               setDestInputText(item.name);
                               setIsDestFocused(false);

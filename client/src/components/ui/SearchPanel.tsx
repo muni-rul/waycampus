@@ -407,7 +407,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
 
         {/* Quick Find Category Chips (When not searching) */}
         {!isFocused && !selectedResult && results.length === 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 sm:py-2 no-scrollbar px-0.5 overscroll-x-contain">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 sm:py-2 no-scrollbar px-0.5 overscroll-x-contain touch-pan-x">
             {QUICK_FILTERS.map((f) => (
               <button
                 key={f.label}
@@ -426,10 +426,14 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
           2. LIVE SEARCH AUTOCOMPLETE DROPDOWN
       ────────────────────────────────────── */}
       {isFocused && (
-        <div className="absolute top-full left-0 right-0 mt-2 z-40 bg-white/98 backdrop-blur-2xl rounded-2xl border border-slate-200 shadow-2xl overflow-hidden animate-slide-up max-h-[50dvh] sm:max-h-[400px] overflow-y-auto overscroll-contain">
+        <div
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          className="absolute top-full left-0 right-0 mt-2 z-40 bg-white/98 backdrop-blur-2xl rounded-2xl border border-slate-200 shadow-2xl animate-slide-up max-h-[50dvh] sm:max-h-[400px] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain"
+        >
           {/* Category Filter Pills & Prominent Close (X) Button */}
-          <div className="px-3 pt-2.5 pb-2 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/80">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-x-contain flex-1 min-w-0">
+          <div className="sticky top-0 z-10 px-3 pt-2.5 pb-2 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/95 backdrop-blur-md">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-x-contain flex-1 min-w-0 touch-pan-x">
               {(
                 [
                   { id: 'ALL', label: 'All' },
@@ -609,7 +613,11 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({
           3. FULL RESULT CARD (FACULTY & ROOMS)
       ────────────────────────────────────── */}
       {selectedResult && viewMode !== 'DESTINATION_CARD' && (
-        <div className="mt-2 z-30 bg-slate-900/95 backdrop-blur-2xl rounded-2xl p-3 sm:p-4 border border-white/15 shadow-2xl animate-scale-up max-h-[50dvh] overflow-y-auto overscroll-contain">
+        <div
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          className="mt-2 z-30 bg-slate-900/95 backdrop-blur-2xl rounded-2xl p-3 sm:p-4 border border-white/15 shadow-2xl animate-scale-up max-h-[50dvh] overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain"
+        >
           {/* Header */}
           <div className="flex items-start justify-between gap-2.5">
             <div className="flex items-start gap-2.5 min-w-0 flex-1">

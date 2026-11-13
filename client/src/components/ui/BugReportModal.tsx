@@ -198,7 +198,11 @@ export const BugReportModal: React.FC<BugReportModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto overscroll-contain pr-1 space-y-3.5 min-h-0 text-xs no-scrollbar">
+        <div
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          className="flex-1 overflow-y-auto overscroll-contain pr-1 space-y-3.5 min-h-0 text-xs no-scrollbar touch-pan-y"
+        >
           {submittedReportId ? (
             /* ──────────────── SUCCESS CONFIRMATION ──────────────── */
             <div className="py-6 px-4 text-center space-y-4 animate-scale-up">

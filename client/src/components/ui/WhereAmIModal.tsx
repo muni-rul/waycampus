@@ -203,8 +203,10 @@ export const WhereAmIModal: React.FC<WhereAmIModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-2xl max-w-sm sm:max-w-md w-full relative max-h-[90dvh] overflow-y-auto overscroll-contain text-slate-800"
+        className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-2xl max-w-sm sm:max-w-md w-full relative max-h-[90dvh] overflow-y-auto overflow-x-hidden overscroll-contain text-slate-800 touch-pan-y"
         onClick={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button

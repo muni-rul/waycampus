@@ -574,7 +574,7 @@ export const TourScreen: React.FC<TourScreenProps> = ({
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 overscroll-x-contain touch-pan-x">
                   {EXPLORE_NEARBY_LANDMARKS.map((item) => {
                     const isActive = activePanorama?.id === item.id;
                     return (
@@ -655,7 +655,11 @@ export const TourScreen: React.FC<TourScreenProps> = ({
             </div>
 
             {/* Landmarks List */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 divide-y divide-slate-100">
+            <div
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-2.5 divide-y divide-slate-100 touch-pan-y"
+            >
               {filteredLandmarks.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">
                   <p className="text-sm font-medium">No landmarks found matching "{seeAllSearch}"</p>
