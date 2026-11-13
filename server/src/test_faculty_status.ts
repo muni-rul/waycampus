@@ -6,7 +6,7 @@ import fs from 'fs';
 const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'campnav-test-fac-'));
 const repoRoot = path.resolve(__dirname, process.cwd().endsWith('server') ? '..' : '.');
 const seedFile = path.join(repoRoot, 'server/data/campusnav_db.seed.json');
-const dbFile = path.join(repoRoot, 'server/data/campusnav_db.json');
+const dbFile = path.join(repoRoot, 'server/data/campusnav_db.seed.json');
 const sourceFile = fs.existsSync(seedFile) ? seedFile : dbFile;
 if (fs.existsSync(sourceFile)) {
   fs.copyFileSync(sourceFile, path.join(testDataDir, 'campusnav_db.json'));

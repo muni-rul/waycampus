@@ -8,7 +8,7 @@ import http from 'http';
 const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'campnav-test-cred-'));
 const repoRoot = path.resolve(__dirname, '..');
 const seedFile = path.join(repoRoot, 'data/campusnav_db.seed.json');
-const dbFile = path.join(repoRoot, 'data/campusnav_db.json');
+const dbFile = path.join(repoRoot, 'data/campusnav_db.seed.json');
 const sourceFile = fs.existsSync(seedFile) ? seedFile : dbFile;
 if (fs.existsSync(sourceFile)) {
   fs.copyFileSync(sourceFile, path.join(testDataDir, 'campusnav_db.json'));
@@ -23,7 +23,6 @@ async function runTests() {
   // Dynamic import ensures process.env.DATA_DIR is active during module initialization
   const { apiRouter, isSafeChristCollegeUrl } = await import('./routes/api');
   const { store } = await import('./db/store');
-  const { gitSyncService } = await import('./services/gitSyncService');
   const {
     generateSecureTempPassword,
     isValidCollegeEmail,

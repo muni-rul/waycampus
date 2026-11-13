@@ -103,7 +103,7 @@ async function runTests() {
 
   // Perform cold-start copy test
   const seedCandidate = path.resolve(__dirname, '../data/campusnav_db.seed.json');
-  const dbCandidate = path.resolve(__dirname, '../data/campusnav_db.json');
+  const dbCandidate = path.resolve(__dirname, '../data/campusnav_db.seed.json');
   const masterDbPath = fs.existsSync(seedCandidate) ? seedCandidate : dbCandidate;
   if (fs.existsSync(masterDbPath)) {
     fs.copyFileSync(masterDbPath, tempDbFile);
