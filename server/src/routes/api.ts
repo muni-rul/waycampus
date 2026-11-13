@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { store } from '../db/store';
-import { gitSyncService } from '../services/gitSyncService';
 import { SearchService } from '../services/searchService';
 import { NavigationService } from '../services/navigationService';
 import { PanoramaService } from '../services/panoramaService';
@@ -904,11 +903,124 @@ apiRouter.post('/admin/faculty/scan-public-emails', requireAdminAuth, async (req
   }
 });
 
-// Cloud Git Sync Persistence Status (Control Center Header)
+// Preview CSV Email Import
+apiRouter.post('/admin/faculty/preview-email-import', requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ error: 'rows array is required' });
+    }
+
+    const teachers = store.getTeachers();
+    const valid: any[] = [];
+    const invalid: any[] = [];
+    const seenEmailsInFile = new Set<string>();
+
+    for (const row of rows) {
+      const rawFacultyId = String(row.facultyId || row.faculty_id || '').trim();
+      const rawEmail = String(row.email || '').trim().toLowerCase();
+
+      if (!rawFacultyId) {
+        invalid.push({ facultyId: rawFacultyId || '(empty)', email: rawEmail, reason: 'Missing faculty ID' });
+        continue;
+      }
+
+      const teacher = teachers.find(t => t.id === rawFacultyId || t.facultyId === rawFacultyId);
+      if (!teacher) {
+        invalid.push({ facultyId: rawFacultyId, email: rawEmail, reason: `Unknown faculty ID "${rawFacultyId}"` });
+        continue;
+      }
+
+      if (!rawEmail) {
+        invalid.push({ facultyId: rawFacultyId, email: '', reason: 'Empty email address' });
+        continue;
+      }
+
+      if (!isValidCollegeEmail(rawEmail)) {
+        invalid.push({ facultyId: rawFacultyId, email: rawEmail, reason: 'Invalid format; must belong to @christcollegeijk.edu.in' });
+        continue;
+      }
+
+      if (seenEmailsInFile.has(rawEmail)) {
+        invalid.push({ facultyId: rawFacultyId, email: rawEmail, reason: 'Duplicate email within uploaded CSV' });
+        continue;
+      }
+      seenEmailsInFile.add(rawEmail);
+
+      // Check collision with other teachers
+      const otherTeacher = teachers.find(t =>
+        (t.id !== teacher.id && t.facultyId !== teacher.id) &&
+        (t.officialEmail || '').trim().toLowerCase() === rawEmail
+      );
+      if (otherTeacher) {
+        invalid.push({ facultyId: rawFacultyId, email: rawEmail, reason: `Email is already assigned to ${otherTeacher.name} (${otherTeacher.id})` });
+        continue;
+      }
+
+      valid.push({
+        facultyId: teacher.id,
+        name: teacher.name,
+        department: teacher.departmentName || teacher.departmentCategory || '',
+        oldEmail: teacher.officialEmail || '',
+        newEmail: rawEmail,
+      });
+    }
+
+    res.json({ success: true, valid, invalid });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to preview email import' });
+  }
+});
+
+// Confirm CSV Email Import
+apiRouter.post('/admin/faculty/confirm-email-import', requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'Non-empty rows array required' });
+    }
+
+    const caller = (req as any).user?.username || 'Admin';
+    const teachers = store.getTeachers();
+    let updatedCount = 0;
+
+    for (const row of rows) {
+      const fId = String(row.facultyId || row.faculty_id).trim();
+      const email = String(row.email || row.newEmail).trim().toLowerCase();
+
+      if (!fId || !email || !isValidCollegeEmail(email)) continue;
+      const teacher = teachers.find(t => t.id === fId || t.facultyId === fId);
+      if (!teacher) continue;
+
+      store.updateTeacher(teacher.id, { officialEmail: email }, caller);
+      updatedCount++;
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully updated ${updatedCount} faculty email(s).`,
+      updatedCount,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to confirm email import' });
+  }
+});
+
+// Cloud Firestore Persistence Status (Control Center Header)
 apiRouter.get('/admin/persistence/status', requireAdminAuth, (req: Request, res: Response) => {
+  const health = store.getRepositoryHealth();
   res.json({
     success: true,
-    status: gitSyncService.getStatus(),
+    status: {
+      provider: health.provider === 'firestore' ? 'Google Cloud Firestore' : 'In-Memory (Development/Offline)',
+      connected: health.connected,
+      configured: health.connected,
+      status: health.status,
+      lastSyncMessage: health.status,
+      projectId: health.projectId || 'not configured',
+      lastSyncAt: health.lastSyncAt || null,
+      error: health.error,
+    },
   });
 });
 
@@ -956,10 +1068,13 @@ apiRouter.get('/admin/faculty/status-logs', requireAdminAuth, (req: Request, res
   }
 });
 
-// Health Check
+// Health Check — reports database status (ok/degraded)
 apiRouter.get('/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
+  const dbHealth = store.getRepositoryHealth();
+  const isHealthy = dbHealth.status === 'ok';
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'ok' : 'degraded',
+    database: dbHealth.status,
     platform: 'CampusNav',
     version: '1.0.0',
     currentTenant: 'Christ College (Autonomous), Irinjalakuda',
@@ -2090,51 +2205,42 @@ function getGitRepoRoot(): string {
   }
 }
 
-// 16. Get Publish & Git Deployment Status
+// 16. Get Publish & Firestore Database Status
 apiRouter.get('/publish/status', requireAdminAuth, (req: Request, res: Response) => {
   try {
-    const isRender = !!process.env.RENDER;
-    const isLocal = !isRender;
-    const liveUrl = 'https://campnav-b3om.onrender.com/';
-    let gitBranch = 'unknown';
-    let gitAvailable = false;
-    let uncommittedChanges = false;
-    let lastCommitHash = '';
-    let lastCommitMsg = '';
-
-    const gitRoot = getGitRepoRoot();
-
-    try {
-      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: gitRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-      gitAvailable = true;
-      const statusOut = execSync('git status -s server/data/campusnav_db.json', { cwd: gitRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-      uncommittedChanges = statusOut.length > 0;
-      lastCommitHash = execSync('git rev-parse --short HEAD', { cwd: gitRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-      lastCommitMsg = execSync('git log -1 --pretty=%B', { cwd: gitRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-    } catch {
-      // Git command might not be available or environment lacks git binary
-    }
-
+    const health = store.getRepositoryHealth();
     const overrides = store.getGraphOverrides();
     const validation = store.validateForPublish();
 
     res.json({
-      isLocal,
-      isRender,
-      liveUrl,
-      gitBranch,
-      gitAvailable,
-      uncommittedChanges,
-      lastCommitHash,
-      lastCommitMsg,
-      lastSavedAt: overrides.lastSavedAt || null,
+      success: true,
+      database: {
+        provider: health.provider === 'firestore' ? 'Google Cloud Firestore' : 'In-Memory (Offline / Test)',
+        connected: health.connected,
+        status: health.status,
+        projectId: health.projectId || 'not configured',
+        lastSyncAt: health.lastSyncAt || overrides.lastSavedAt || null,
+        error: health.error,
+      },
+      counts: {
+        buildings: store.getBuildings().length,
+        rooms: store.getRooms().length,
+        classrooms: store.getClassrooms().length,
+        laboratories: store.getLaboratories().length,
+        teachers: store.getTeachers().length,
+        facultyAccounts: store.getFacultyAccounts().length,
+        facultyStatuses: Object.keys(store.getFacultyStatuses()).length,
+        panoramas: store.getPanoramas().length,
+        navigationNodes: store.getNavigationNodes().length,
+        navigationEdges: store.getNavigationEdges().length,
+        places: store.getPlaces().length,
+      },
+      lastSavedAt: overrides.lastSavedAt || health.lastSyncAt || null,
       savedBy: overrides.savedBy || null,
       version: validation.version,
       contentHash: validation.contentHash,
-      lastPublishedVersion: validation.lastPublishedVersion,
-      lastPublishedHash: validation.lastPublishedHash,
-      lastPublishedAt: validation.lastPublishedAt || null,
-      publishStatus: validation.publishStatus,
+      publishStatus: 'PUBLISHED',
+      message: 'All edits commit directly to Google Cloud Firestore and are live across all instances immediately in realtime.',
       validation,
     });
   } catch (err: any) {
@@ -2201,348 +2307,53 @@ apiRouter.post('/publish/validate', requireAdminAuth, async (req: Request, res: 
   }
 });
 
-// 16C. Atomic Local-to-Target Publish Synchronization & Post-Publish Verification
+// 16C. Atomic Local-to-Target Publish Synchronization (Superseded by Cloud Firestore)
 apiRouter.post('/publish/sync', requireSuperAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const {
-      targetUrl,
-      targetAuthToken,
-      force = false,
-      confirmLiveProduction = false,
-      mode = 'TARGET_API',
-    } = req.body || {};
-    const caller = (req as any).user?.username || 'super_admin';
-
-    const syncResult = await store.withWriteLock(async () => {
-      // Step 1: Pre-publish validation
-      const validation = store.validateForPublish();
-      if (!validation.valid) {
-        return {
-          status: 400,
-          body: {
-            success: false,
-            error: `Pre-publish validation failed with ${validation.errors.length} error(s). Resolve errors before publishing.`,
-            validation,
-          },
-        };
-      }
-
-      // Step 2: Create automatic local pre-publish safety snapshot
-      const snapshot = store.createDataSnapshot(
-        `Pre-Publish Snapshot v${validation.version}`,
-        `Automatic pre-publish backup (${validation.totalNodeCount} panoramas, ${validation.totalConnections} arrows, ${validation.totalTags} tags)`,
-        caller
-      );
-
-      // Mode: LOCAL_MARK_PUBLISHED (marks verified local database as published without external network push)
-      if (mode === 'LOCAL_MARK_PUBLISHED' || !targetUrl) {
-        const publishedOverrides = store.markGraphPublished(caller);
-        return {
-          status: 200,
-          body: {
-            success: true,
-            mode: 'LOCAL_MARK_PUBLISHED',
-            message: `✓ Verified all ${validation.totalNodeCount} panoramas, ${validation.totalConnections} connections, and ${validation.totalTags} tags. Local publish state marked PUBLISHED (v${publishedOverrides.version}).`,
-            snapshotId: snapshot.id,
-            validation: store.validateForPublish(),
-          },
-        };
-      }
-
-      const cleanTargetUrl = String(targetUrl).trim().replace(/\/+$/, '');
-      const isLiveRenderTarget = cleanTargetUrl.includes('campnav-b3om.onrender.com');
-      const requestHost = String(req.headers.host || '').toLowerCase();
-      let targetHost = '';
-      try {
-        targetHost = new URL(cleanTargetUrl).host.toLowerCase();
-      } catch {}
-
-      const isSelfTarget =
-        (Boolean(process.env.RENDER) && isLiveRenderTarget) ||
-        (Boolean(requestHost) && Boolean(targetHost) && requestHost === targetHost);
-
-      // If Admin clicked Publish directly inside the live Render Control Center (self-target),
-      // materialize assets and mark published directly without self-fetching inside withWriteLock
-      if (isSelfTarget) {
-        store.materializeUploadedPanoramaAssetsToDisk();
-        const published = store.markGraphPublished(caller);
-        store.persist(true);
-        const finalValidation = store.validateForPublish();
-        return {
-          status: 200,
-          body: {
-            success: true,
-            mode: 'LIVE_DIRECT_PUBLISH',
-            targetUrl: cleanTargetUrl,
-            snapshotId: snapshot.id,
-            verifiedRemoteHash: published.contentHash || finalValidation.contentHash,
-            remoteNodeCount: finalValidation.totalNodeCount,
-            validation: finalValidation,
-            message: `✓ Published directly on ${cleanTargetUrl}! All ${finalValidation.totalNodeCount} panoramas, ${finalValidation.totalConnections} connections, and ${finalValidation.totalTags} tags are live.`,
-          },
-        };
-      }
-
-      if (isLiveRenderTarget && !confirmLiveProduction) {
-        return {
-          status: 400,
-          body: {
-            success: false,
-            requiresConfirmation: true,
-            error: 'Publishing directly to the live Render production site requires explicit confirmation (confirmLiveProduction: true).',
-            validation,
-          },
-        };
-      }
-
-      // Step 3: Check remote target for conflicts before pushing
-      const checkRes = await fetch(`${cleanTargetUrl}/api/v1/graph/overrides`, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-      if (!checkRes.ok) {
-        return {
-          status: 502,
-          body: {
-            success: false,
-            error: `Target server (${cleanTargetUrl}) returned HTTP ${checkRes.status} during pre-publish check. Local work remains safely saved.`,
-            validation,
-          },
-        };
-      }
-
-      const remoteOverridesBefore = await checkRes.json();
-      const remoteHashBefore =
-        remoteOverridesBefore?.contentHash || store.computeGraphContentHash(remoteOverridesBefore || {});
-
-      if (
-        !force &&
-        validation.lastPublishedHash &&
-        remoteHashBefore !== validation.lastPublishedHash &&
-        remoteHashBefore !== validation.contentHash
-      ) {
-        return {
-          status: 409,
-          body: {
-            success: false,
-            conflict: true,
-            error: 'Remote target has newer changes that differ from your last published baseline. Review or enable force sync to overwrite.',
-            remoteHash: remoteHashBefore,
-            expectedHash: validation.lastPublishedHash,
-            localHash: validation.contentHash,
-            validation,
-          },
-        };
-      }
-
-      // Step 4: Push full validated database payload to target /api/v1/publish/import-db
-      let authHeader =
-        targetAuthToken
-          ? `Bearer ${targetAuthToken}`
-          : req.headers.authorization || '';
-
-      if (!authHeader || authHeader.includes('dev-localhost-unrestricted-bypass-token')) {
-        return {
-          status: 400,
-          body: {
-            success: false,
-            error: 'Remote database synchronization requires an explicit authorization token.',
-          },
-        };
-      }
-
-      const payloadToPush = {
-        state: store.exportDatabasePayload(),
-        expectedPreviousHash: force ? undefined : validation.lastPublishedHash,
-        force: Boolean(force),
-        publishedBy: caller,
-      };
-
-      let importRes = await fetch(`${cleanTargetUrl}/api/v1/publish/import-db`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        },
-        body: JSON.stringify(payloadToPush),
-      });
-
-      const importBody: any = await importRes.json().catch(() => ({}));
-      if (!importRes.ok || !importBody?.success) {
-        return {
-          status: importRes.status >= 400 ? importRes.status : 502,
-          body: {
-            success: false,
-            conflict: Boolean(importBody?.conflict),
-            error:
-              importBody?.error ||
-              importBody?.message ||
-              `Target import failed with HTTP ${importRes.status}. Local saved state is preserved.`,
-            validation,
-          },
-        };
-      }
-
-      // Step 5: Post-publish verification against target API
-      const verifyRes = await fetch(`${cleanTargetUrl}/api/v1/graph/overrides`, {
-        method: 'GET',
-        headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
-      });
-      if (!verifyRes.ok) {
-        return {
-          status: 502,
-          body: {
-            success: false,
-            error: `Post-publish verification request to ${cleanTargetUrl} failed with HTTP ${verifyRes.status}.`,
-          },
-        };
-      }
-
-      const verifiedRemoteOverrides = await verifyRes.json();
-      const verifiedRemoteHash =
-        verifiedRemoteOverrides?.contentHash || store.computeGraphContentHash(verifiedRemoteOverrides || {});
-      const remoteNodeCount =
-        Object.keys(verifiedRemoteOverrides?.manualNumbers || {}).length;
-
-      if (verifiedRemoteHash !== validation.contentHash) {
-        return {
-          status: 502,
-          body: {
-            success: false,
-            error: `Post-publish hash verification mismatch: local=${validation.contentHash.slice(0, 12)} vs remote=${verifiedRemoteHash.slice(0, 12)}.`,
-          },
-        };
-      }
-
-      // Step 6: Mark local state as PUBLISHED now that remote verification succeeded
-      store.markGraphPublished(caller);
-      store.persist(true);
-      const finalValidation = store.validateForPublish();
-
-      // Step 7: Push latest state to GitHub private data repository if gitSyncService is configured
-      let gitSynced = false;
-      if (gitSyncService.isConfigured()) {
-        try {
-          const syncRes = await gitSyncService.syncFile(store.getDataFilePath());
-          gitSynced = syncRes.success;
-          if (!syncRes.success) {
-            console.warn('[Publish Sync] Cloud data sync warning:', syncRes.message);
-          }
-        } catch (gitSyncErr: any) {
-          console.warn('[Publish Sync] Background data sync failed:', gitSyncErr?.message);
-        }
-      }
-
-      return {
-        status: 200,
-        body: {
-          success: true,
-          mode: 'TARGET_API',
-          targetUrl: cleanTargetUrl,
-          snapshotId: snapshot.id,
-          verifiedRemoteHash,
-          remoteNodeCount,
-          gitSynced,
-          validation: finalValidation,
-          message: `✓ Successfully published and verified on ${cleanTargetUrl}! All ${finalValidation.totalNodeCount} panoramas, ${finalValidation.totalConnections} connections, and ${finalValidation.totalTags} tags are live and in sync.`,
-        },
-      };
-    });
-
-    return res.status(syncResult.status).json(syncResult.body);
-  } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      error: `Publish synchronization failed: ${err?.message || 'Unknown error'}. Local saved work remains intact.`,
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Manual publish sync is obsolete. Google Cloud Firestore is the single source of truth; all edits are live immediately across all instances in real-time.',
+  });
 });
 
-// 17. 1-Click Publish to Render (Data Repo sync + optional Deploy Hook)
+// 17. 1-Click Publish to Render (Superseded by Cloud Firestore)
 apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const { deployHookUrl } = req.body || {};
-
-    // 1. Run pre-publish validation before any deploy
-    const validation = store.validateForPublish();
-    if (!validation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: `Pre-publish validation failed with ${validation.errors.length} error(s). Please fix before publishing.`,
-        validation,
-      });
-    }
-
-    // 2. Ensure latest database state is flushed to disk and create safety snapshot
-    const caller = (req as any).user?.username || 'super_admin';
-    store.createDataSnapshot(
-      `Pre-Deploy Backup v${validation.version}`,
-      `Automatic safety backup before deploy`,
-      caller
-    );
-    store.persist(true);
-
-    let gitSuccess = false;
-    let gitErrMsg = '';
-
-    if (gitSyncService.isConfigured()) {
-      try {
-        const syncRes = await gitSyncService.syncFile(store.getDataFilePath());
-        gitSuccess = syncRes.success;
-        if (!syncRes.success) {
-          gitErrMsg = syncRes.message;
-        }
-      } catch (syncErr: any) {
-        gitErrMsg = syncErr?.message || 'Data sync error';
-        console.warn('[Publish Deploy] Data repo sync warning:', gitErrMsg);
-      }
-    }
-
-    // Trigger optional Render deploy webhook
-    let hookTriggered = false;
-    const targetHookUrl = deployHookUrl || process.env.RENDER_DEPLOY_HOOK_URL;
-    if (targetHookUrl) {
-      try {
-        const hookRes = await fetch(targetHookUrl, { method: 'POST' });
-        hookTriggered = hookRes.ok;
-      } catch (hookErr: any) {
-        console.warn('[Publish] Deploy hook ping error:', hookErr.message);
-      }
-    }
-
-    store.markGraphPublished(caller);
-
-    return res.json({
-      success: true,
-      gitSuccess,
-      hookTriggered,
-      validation: store.validateForPublish(),
-      message: hookTriggered
-        ? '✓ Triggered Render deploy hook and verified publish state.'
-        : gitSuccess
-        ? '✓ Synchronized published state to private data repository.'
-        : '✓ Local publish state validated and marked PUBLISHED. (Configure RENDER_DEPLOY_HOOK_URL or GITHUB_DATA_REPO for remote deployment).',
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Deploy failed' });
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Render deployment sync is obsolete. Changes write directly to Cloud Firestore without requiring redeployment.',
+  });
 });
 
-// 18. Export Database File (Direct JSON Download)
+// 18. Export Database File (Browser JSON Download - Excludes Password Hashes)
 apiRouter.get('/publish/export-db', requireAdminAuth, (req: Request, res: Response) => {
   try {
-    store.persist(true);
-    const dbPayload = store.exportDatabasePayload();
+    const rawState = JSON.parse(JSON.stringify(store.exportDatabasePayload()));
+    // Strip all password hashes to ensure browser downloads never leak credentials
+    if (rawState.facultyAccounts) {
+      rawState.facultyAccounts = rawState.facultyAccounts.map((a: any) => {
+        const { passwordHash, ...rest } = a;
+        return rest;
+      });
+    }
+    if (rawState.adminUsers) {
+      rawState.adminUsers = rawState.adminUsers.map((u: any) => {
+        const { passwordHash, ...rest } = u;
+        return rest;
+      });
+    }
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename="campusnav_db_backup.json"');
-    res.send(JSON.stringify(dbPayload, null, 2));
+    res.setHeader('Content-Disposition', 'attachment; filename="campusnav_backup_nohashes.json"');
+    res.send(JSON.stringify(rawState, null, 2));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to export database' });
   }
 });
 
-// 19. Import Database JSON Payload (Supports Full Atomic State Import & GraphOverride Import)
+// 19. Import Database JSON Payload (Superseded by Cloud Firestore & migration script)
 apiRouter.post('/publish/import-db', requireSuperAdminAuth, async (req: Request, res: Response) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Direct JSON database import is disabled. Use scripts/migrateToFirestore.ts for initial database population.',
+  });
   try {
     const payload = req.body;
     if (!payload || typeof payload !== 'object') {

@@ -32,7 +32,10 @@ import {
   LogOut,
   Cloud,
   CloudOff,
-  Database
+  Database,
+  Upload,
+  FileDown,
+  Eye
 } from 'lucide-react';
 import { ApiService, getApiBaseUrl } from '../../../services/api';
 import { Teacher } from '../../../../../shared/types';
@@ -141,6 +144,18 @@ export const FacultyCredentialsSection: React.FC = () => {
 
   // Partial Failures Banner
   const [bulkSkippedList, setBulkSkippedList] = useState<{ facultyId: string; name?: string; reason: string }[] | null>(null);
+
+  // Email CSV Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importCsvText, setImportCsvText] = useState('');
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [isPreviewingImport, setIsPreviewingImport] = useState(false);
+  const [isConfirmingImport, setIsConfirmingImport] = useState(false);
+  const [importPreviewData, setImportPreviewData] = useState<{
+    accepted: Array<{ facultyId: string; name: string; department: string; oldEmail: string | null; newEmail: string }>;
+    rejected: Array<{ line: number; facultyId: string; email: string; reason: string }>;
+    stats: { totalRows: number; acceptedCount: number; rejectedCount: number };
+  } | null>(null);
 
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     setFeedback({ type, message });
@@ -718,6 +733,151 @@ Please log in and update your password immediately upon first access.`;
     URL.revokeObjectURL(url);
   };
 
+  // Export list of faculty members missing official emails as CSV
+  const handleExportMissingEmails = () => {
+    const missing = teachers.filter((t) => {
+      const email = (t.officialEmail || '').trim();
+      return !email;
+    });
+
+    if (missing.length === 0) {
+      showNotification('info', 'No faculty members are currently missing emails.');
+      return;
+    }
+
+    const headers = ['Faculty ID', 'Faculty Name', 'Department', 'Designation'];
+    const rows = missing.map((t) => [
+      `"${(t.id || '').replace(/"/g, '""')}"`,
+      `"${(t.name || '').replace(/"/g, '""')}"`,
+      `"${(t.departmentName || t.department || '').replace(/"/g, '""')}"`,
+      `"${(t.designation || '').replace(/"/g, '""')}"`,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `campnav_missing_emails_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showNotification('success', `Exported ${missing.length} faculty members missing emails to CSV.`);
+  };
+
+  // Handle CSV file selection for email import
+  const handleCsvFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = (event.target?.result as string) || '';
+      setImportCsvText(text);
+      setImportPreviewData(null);
+    };
+    reader.readAsText(file);
+  };
+
+  // Preview CSV email import
+  const handlePreviewEmailImport = async () => {
+    if (!importCsvText.trim()) {
+      showNotification('error', 'Please select or paste CSV content first.');
+      return;
+    }
+
+    setIsPreviewingImport(true);
+    try {
+      // Parse CSV lines into rows
+      const lines = importCsvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      const rows: Array<{ facultyId: string; email: string }> = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        // Skip header
+        if (i === 0 && (line.toLowerCase().startsWith('faculty_id') || line.toLowerCase().startsWith('id,'))) {
+          continue;
+        }
+        const parts = line.split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
+        if (parts.length >= 2) {
+          rows.push({ facultyId: parts[0], email: parts[1] });
+        }
+      }
+
+      if (rows.length === 0) {
+        showNotification('error', 'No valid faculty rows found in CSV. Format: faculty_id,email');
+        return;
+      }
+
+      const res = await ApiService.previewEmailImport(rows);
+      if (res.success) {
+        const validList = (res.valid || []).map((v) => ({
+          facultyId: v.facultyId,
+          name: v.name,
+          department: v.department,
+          oldEmail: v.oldEmail || null,
+          newEmail: v.newEmail,
+        }));
+        const invalidList = (res.invalid || []).map((inv, idx) => ({
+          line: idx + 1,
+          facultyId: inv.facultyId,
+          email: inv.email,
+          reason: inv.reason,
+        }));
+
+        setImportPreviewData({
+          accepted: validList,
+          rejected: invalidList,
+          stats: {
+            totalRows: rows.length,
+            acceptedCount: validList.length,
+            rejectedCount: invalidList.length,
+          },
+        });
+      }
+    } catch (err: any) {
+      showNotification('error', err.message || 'Error previewing CSV import.');
+    } finally {
+      setIsPreviewingImport(false);
+    }
+  };
+
+  // Confirm CSV email import
+  const handleConfirmEmailImport = async () => {
+    if (!importPreviewData || importPreviewData.accepted.length === 0) {
+      showNotification('error', 'No accepted rows to import.');
+      return;
+    }
+
+    setIsConfirmingImport(true);
+    try {
+      const updates = importPreviewData.accepted.map((row) => ({
+        facultyId: row.facultyId,
+        email: row.newEmail,
+      }));
+
+      const res = await ApiService.confirmEmailImport(updates);
+      if (res.success) {
+        showNotification(
+          'success',
+          `Successfully updated ${res.updatedCount} faculty email(s).`
+        );
+        setShowImportModal(false);
+        setImportCsvText('');
+        setImportFileName(null);
+        setImportPreviewData(null);
+        await loadData();
+      } else {
+        showNotification('error', res.message || 'Failed to commit email import.');
+      }
+    } catch (err: any) {
+      showNotification('error', err.message || 'Error confirming email import.');
+    } finally {
+      setIsConfirmingImport(false);
+    }
+  };
+
   // Switch API Server Base URL
   const handleApplyCustomServerUrl = () => {
     const clean = customApiUrlInput.trim();
@@ -1133,8 +1293,31 @@ Please log in and update your password immediately upon first access.`;
             )}
           </div>
 
-          {/* Bulk Action Button */}
-          <div className="flex items-center gap-2">
+          {/* Action Buttons: Missing Email Export, CSV Import, Bulk Action */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleExportMissingEmails}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition"
+              title="Download CSV of faculty members without verified emails"
+            >
+              <FileDown className="w-3.5 h-3.5 text-amber-600" />
+              <span>Export Missing Emails ({emailStats.missing})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowImportModal(true);
+                setImportPreviewData(null);
+                setImportCsvText('');
+                setImportFileName(null);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+              title="Upload CSV to populate or update faculty emails"
+            >
+              <Upload className="w-3.5 h-3.5 text-slate-600" />
+              <span>Import Emails (CSV)</span>
+            </button>
+
             <button
               onClick={() => setShowBulkCreateModal(true)}
               disabled={eligibleSelectedTeachers.length === 0}
@@ -1193,6 +1376,18 @@ Please log in and update your password immediately upon first access.`;
             <option value="DUPLICATE">Duplicate ({emailStats.duplicate})</option>
             <option value="SUGGESTION">Unverified Suggestion ({suggestions.size})</option>
           </select>
+
+          <button
+            type="button"
+            onClick={() => setEmailStatusFilter((prev) => (prev === 'MISSING' ? 'ALL' : 'MISSING'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              emailStatusFilter === 'MISSING'
+                ? 'bg-amber-100 border-amber-400 text-amber-900 shadow-xs'
+                : 'bg-amber-50 hover:bg-amber-100/70 border-amber-200 text-amber-800'
+            }`}
+          >
+            Missing Email ({emailStats.missing})
+          </button>
 
           {(searchQuery || departmentFilter !== 'ALL' || statusFilter !== 'ALL' || emailStatusFilter !== 'ALL') && (
             <button
@@ -1959,6 +2154,212 @@ Please log in and update your password immediately upon first access.`;
               >
                 Apply & Connect
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Email Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200/80 space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Import Faculty Emails</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Upload or paste a CSV file with <code className="font-mono text-blue-700">faculty_id,email</code> columns.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportPreviewData(null);
+                  setImportCsvText('');
+                  setImportFileName(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+              {!importPreviewData ? (
+                <>
+                  <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 text-center cursor-pointer transition bg-slate-50/50">
+                    <input
+                      type="file"
+                      accept=".csv,text/csv,text/plain"
+                      onChange={handleCsvFileUpload}
+                      className="hidden"
+                      id="faculty-csv-file-input"
+                    />
+                    <label htmlFor="faculty-csv-file-input" className="cursor-pointer block space-y-1">
+                      <FileSpreadsheet className="w-8 h-8 mx-auto text-slate-400" />
+                      <div className="text-xs font-semibold text-slate-700">
+                        {importFileName ? (
+                          <span className="text-blue-600 font-bold">{importFileName}</span>
+                        ) : (
+                          'Click to upload CSV or drag and drop'
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-400">Accepted headers: faculty_id,email (or id,email)</p>
+                    </label>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                      <span>Or paste CSV text:</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Format: faculty_id,email</span>
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={importCsvText}
+                      onChange={(e) => setImportCsvText(e.target.value)}
+                      placeholder={"faculty_id,email\nfaculty-123,teacher@srit.ac.in\nfaculty-456,staff@srit.ac.in"}
+                      className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                      <div className="text-xs text-slate-500 font-semibold uppercase">Total Rows</div>
+                      <div className="text-lg font-bold text-slate-800">{importPreviewData.stats.totalRows}</div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                      <div className="text-xs text-emerald-700 font-semibold uppercase">Accepted</div>
+                      <div className="text-lg font-bold text-emerald-700">{importPreviewData.stats.acceptedCount}</div>
+                    </div>
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-center">
+                      <div className="text-xs text-rose-700 font-semibold uppercase">Rejected</div>
+                      <div className="text-lg font-bold text-rose-700">{importPreviewData.stats.rejectedCount}</div>
+                    </div>
+                  </div>
+
+                  {/* Accepted Rows Table */}
+                  {importPreviewData.accepted.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Accepted Updates ({importPreviewData.accepted.length})</span>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 border-b border-slate-200">
+                            <tr>
+                              <th className="p-2">Faculty ID</th>
+                              <th className="p-2">Name</th>
+                              <th className="p-2">Department</th>
+                              <th className="p-2">New Email</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {importPreviewData.accepted.map((row, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50">
+                                <td className="p-2 font-mono text-slate-700">{row.facultyId}</td>
+                                <td className="p-2 font-medium text-slate-900">{row.name}</td>
+                                <td className="p-2 text-slate-600">{row.department}</td>
+                                <td className="p-2 font-mono text-emerald-700 font-semibold">{row.newEmail}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rejected Rows Table */}
+                  {importPreviewData.rejected.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Rejected Rows with Errors ({importPreviewData.rejected.length})</span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/20">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-rose-50 text-[11px] font-bold text-rose-800 border-b border-rose-200">
+                            <tr>
+                              <th className="p-2">Line</th>
+                              <th className="p-2">Faculty ID</th>
+                              <th className="p-2">Email</th>
+                              <th className="p-2">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-rose-100">
+                            {importPreviewData.rejected.map((row, idx) => (
+                              <tr key={idx} className="hover:bg-rose-50/50">
+                                <td className="p-2 font-mono text-slate-500">{row.line}</td>
+                                <td className="p-2 font-mono text-slate-700">{row.facultyId || '—'}</td>
+                                <td className="p-2 font-mono text-slate-600">{row.email || '—'}</td>
+                                <td className="p-2 text-rose-700 font-medium">{row.reason}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              {importPreviewData ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setImportPreviewData(null)}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  >
+                    Back to Edit CSV
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowImportModal(false)}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isConfirmingImport || importPreviewData.accepted.length === 0}
+                      onClick={handleConfirmEmailImport}
+                      className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      {isConfirmingImport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      <span>Confirm & Import ({importPreviewData.accepted.length})</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowImportModal(false)}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPreviewingImport || !importCsvText.trim()}
+                    onClick={handlePreviewEmailImport}
+                    className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    {isPreviewingImport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>Preview Validation</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

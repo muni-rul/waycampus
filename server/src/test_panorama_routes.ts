@@ -1,5 +1,6 @@
 import { PanoramaService } from './services/panoramaService';
 import { NavigationService } from './services/navigationService';
+import { shouldRenderNavigationArrow } from '../../shared/arrowVisibility';
 
 console.log('================================================================');
 console.log('   CAMPUSNAV 360° STREET VIEW & PANORAMA SUITE VERIFICATION     ');
@@ -48,6 +49,52 @@ route.instructions.slice(0, 4).forEach((inst, idx) => {
 const neighbors = PanoramaService.getNeighbors('outdoor_001');
 console.log(`[PASS] 6. Gate 1 Active Node Neighbors: ${neighbors.length} connected corridors/walkways`);
 if (neighbors.length === 0) throw new Error('Expected at least 1 neighbor for outdoor_001');
+
+// 7. Test Navigation Arrow Visibility Rule Pure Function (Requirement D)
+const sampleSpotA = { targetPanoId: 'outdoor_002', yaw: 45 };
+const sampleSpotB = { targetPanoId: 'outdoor_357', yaw: 180 };
+
+// (a) Explore mode shows NONE
+const exploreVisibleA = shouldRenderNavigationArrow({
+  isRouteActive: false,
+  spot: sampleSpotA,
+  authoritativeNextNodeId: 'outdoor_002',
+});
+const exploreVisibleB = shouldRenderNavigationArrow({
+  isRouteActive: false,
+  spot: sampleSpotB,
+});
+if (exploreVisibleA || exploreVisibleB) {
+  throw new Error('Explore mode must render NO navigation arrows');
+}
+console.log('[PASS] 7a. Pure Visibility Rule: Explore mode renders zero arrows');
+
+// (b) Route mode shows ONLY route-direction arrows
+const routeVisibleNext = shouldRenderNavigationArrow({
+  isRouteActive: true,
+  spot: sampleSpotA,
+  authoritativeNextNodeId: 'outdoor_002',
+});
+const routeVisibleOther = shouldRenderNavigationArrow({
+  isRouteActive: true,
+  spot: sampleSpotB,
+  authoritativeNextNodeId: 'outdoor_002',
+});
+if (!routeVisibleNext || routeVisibleOther) {
+  throw new Error('Route mode must strictly show ONLY arrows leading along route to next node');
+}
+console.log('[PASS] 7b. Pure Visibility Rule: Route mode shows only route-direction arrows');
+
+// (c) No route (route ends / cancelled) shows NONE
+const noRouteVisible = shouldRenderNavigationArrow({
+  isRouteActive: false,
+  spot: sampleSpotA,
+  authoritativeNextNodeId: null,
+});
+if (noRouteVisible) {
+  throw new Error('No route / cancelled route must show zero arrows');
+}
+console.log('[PASS] 7c. Pure Visibility Rule: No route shows zero arrows');
 
 console.log('\n================================================================');
 console.log('   ALL PANORAMA STREET VIEW TESTS PASSED (100% SUCCESS RATE)     ');

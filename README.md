@@ -188,6 +188,20 @@ https://campnav-naf9.onrender.com/api/v1/health
 
 Deployment configuration is kept in the repository so the application can be reproduced from source.
 
+## 💾 Data Storage & Persistence
+
+WayCampus uses **Google Cloud Firestore** as the single source of truth for runtime database records across development and production environments.
+
+### Architecture Highlights
+- **Zero Local Runtime Data Files**: The server does not write to local JSON files (`campusnav_db.json`), `DATA_DIR`, or disk snapshot folders at runtime. Ephemeral server instances (e.g. Render free tier) retain full state between deploys and restarts.
+- **In-Memory Cache & Zero-Read Student Experience**: All read requests for public students/visitors are served 100% from the server's in-memory state. Firestore is read only once during cold startup (~350 reads) and whenever updates occur.
+- **Real-Time Cross-Instance Sync**: Firestore `onSnapshot` real-time listeners automatically replicate faculty account creations, status changes, and graph updates across local dev Control Center instances and the live production Render instance without restarts.
+- **Static Assets**: 360° panorama image files and map tiles remain high-performance static files served via HTTP/CDN, keeping database document sizes minimal.
+- **Firestore Document Sizing**: Every collection and document schema is optimized (< 500 KB per document) to comfortably stay within Firebase's free Spark plan limits (50,000 reads/day, 20,000 writes/day, 1 GiB storage).
+
+### Local Admin to Production Workflow
+Administrators can run the Control Center locally (`npm run dev:client`) connected either to the local development server or directly to the production Render API (`https://campnav-b3om.onrender.com/api/v1`). Both point to the same Cloud Firestore database, ensuring instantaneous, consistent data management without manual export/import steps or git data commits.
+
 ## 🗺️ Navigation model
 
 WayCampus treats indoor navigation as a graph:

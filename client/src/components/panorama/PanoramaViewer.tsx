@@ -33,6 +33,8 @@ import {
   Minus,
 } from 'lucide-react';
 import { PanoramaNode, PanoramaHotspot, VerifiedPlace, CustomPlaceTag, SearchResult } from '../../../../shared/types';
+import { shouldRenderNavigationArrow } from '../../../../shared/arrowVisibility';
+export { shouldRenderNavigationArrow };
 import { PanoramaTextureGenerator } from '../../services/panoramaTextureGenerator';
 import { useNavigation } from '../../context/NavigationContext';
 import { CAMPUS_ZONES } from '../../services/campusPathfinder';
@@ -2063,27 +2065,19 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
     // A. 3D Google Street View Ground-Projected Navigation Chevrons
     // ─────────────────────────────────────────────────────────
     (panorama.hotspots || []).forEach((spot) => {
-      let isPrimaryNextStep = false;
-      if (isRouteActive) {
-        if (
-          authoritativeNextNodeId &&
-          spot.targetPanoId &&
-          spot.targetPanoId.toLowerCase() === authoritativeNextNodeId.toLowerCase()
-        ) {
-          isPrimaryNextStep = true;
-        } else if (!authoritativeNextNodeId) {
-          if (nextRouteHotspotYaw !== undefined && Math.abs(spot.yaw - nextRouteHotspotYaw) < 25) {
-            isPrimaryNextStep = true;
-          } else if (currentStep?.yaw !== undefined && Math.abs(spot.yaw - currentStep.yaw) < 25) {
-            isPrimaryNextStep = true;
-          }
-        }
-      }
+      const isVisible = shouldRenderNavigationArrow({
+        isRouteActive,
+        spot,
+        authoritativeNextNodeId,
+        nextRouteHotspotYaw,
+        currentStepYaw: currentStep?.yaw,
+      });
 
-      // CRITICAL NAVIGATION LOCK: When navigating, strictly show ONLY the single authoritative next step arrow!
-      if (isRouteActive && !isPrimaryNextStep) {
+      if (!isVisible) {
         return;
       }
+
+      const isPrimaryNextStep = true;
 
       const isTargetReady = PanoramaResourceManager.isPanoramaReady(spot.targetPanoId);
       const sprite = createStreetViewGroundChevronSprite(spot, isPrimaryNextStep, isTargetReady);

@@ -34,16 +34,11 @@ services:
       - key: ADMIN_NAME
         value: Christ College Administrator
 
-      # ─── FREE-TIER CLOUD DATA REPOSITORY SEPARATION ───
-      # To persist database changes on Render's free tier, configure a SEPARATE private data repository.
-      # Sync will be refused if GITHUB_DATA_REPO is identical to the code repository.
-      - key: GITHUB_TOKEN
+      # ─── FIREBASE CLOUD FIRESTORE PERSISTENCE ───
+      # Single source of truth for runtime data on Render.
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false
-      - key: GITHUB_DATA_REPO
-        sync: false
-      - key: GITHUB_DATA_BRANCH
-        sync: false
-      - key: GITHUB_DATA_PATH
+      - key: FIREBASE_PROJECT_ID
         sync: false
 
       # ─── OPTIONAL ALLOWED CORS ORIGINS ───

@@ -139,6 +139,12 @@ async function runVerification() {
   );
 
   console.log(`\nRESULTS: ${passed}/${total} TESTS PASSED (${Math.round((passed / total) * 100)}% SUCCESS RATE)\n`);
+  if (passed !== total || total === 0) {
+    process.exit(1);
+  }
 }
 
-runVerification().catch(console.error);
+runVerification().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

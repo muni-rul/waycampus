@@ -182,11 +182,14 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 let server: any;
 
 async function bootstrap() {
-  // Ensure database and faculty accounts are restored from data repository before accepting requests
+  // Ensure database is initialized from authoritative Cloud Firestore before accepting requests
   try {
-    await store.initCloudSync();
+    await store.initDatabase();
   } catch (err: any) {
-    console.warn('[CampusNav Server] Initial cloud sync warning:', err?.message);
+    console.error('[CampusNav Server] Database initialization error:', err?.message);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
   }
 
   server = app.listen(PORT, () => {

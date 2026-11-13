@@ -1693,6 +1693,46 @@ export class ApiService {
     return await res.json();
   }
 
+  public static async previewEmailImport(rows: Array<{ facultyId: string; email: string }>): Promise<{
+    success: boolean;
+    valid: Array<{ facultyId: string; name: string; department: string; oldEmail: string; newEmail: string }>;
+    invalid: Array<{ facultyId: string; email: string; reason: string }>;
+  }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/preview-email-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify({ rows }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to preview email import' }));
+      throw new Error(err.error || 'Failed to preview email import');
+    }
+    return res.json();
+  }
+
+  public static async confirmEmailImport(rows: Array<{ facultyId: string; email: string }>): Promise<{
+    success: boolean;
+    message: string;
+    updatedCount: number;
+  }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/confirm-email-import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify({ rows }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to confirm email import' }));
+      throw new Error(err.error || 'Failed to confirm email import');
+    }
+    return res.json();
+  }
+
   // ─────────────────────────────────────────────────────────────
   // CONTROL CENTER — ADMIN OWNERSHIP, SNAPSHOTS, ALIASES & VALIDATION
   // ─────────────────────────────────────────────────────────────

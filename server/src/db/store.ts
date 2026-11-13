@@ -60,7 +60,9 @@ import {
   isValidCollegeEmail,
 } from '../middleware/auth';
 import crypto from 'crypto';
-import { gitSyncService } from '../services/gitSyncService';
+import { IDataRepository, RepositoryHealth } from './repository/IDataRepository';
+import { FirestoreRepository } from './repository/FirestoreRepository';
+import { InMemoryRepository } from './repository/InMemoryRepository';
 import {
   SEED_ORGANIZATION,
   SEED_CAMPUS,
@@ -185,6 +187,13 @@ export function getCollegeAdminDefaults(): AdminUser {
   };
 }
 
+export function hasFirebaseCredentials(): boolean {
+  return Boolean(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()
+  );
+}
+
 class DataStore {
   private state: DatabaseState;
   private dataFilePath: string;
@@ -194,41 +203,122 @@ class DataStore {
   private responseCache: Map<string, { version: number; etag: string; json: string; data: any }> = new Map();
   private writeQueuePromise: Promise<void> = Promise.resolve();
   private mutexChain: Promise<any> = Promise.resolve();
+  private repository: IDataRepository;
+  private realtimeUnsubscribe?: () => void;
 
   constructor() {
     const dataDir = findDataDir();
     this.dataFilePath = path.join(dataDir, 'campusnav_db.json');
 
-    // Cold-Start Auto-Seeding:
-    // If running against an external DATA_DIR (e.g. fresh Render persistent disk) and the database
-    // does not exist yet on that disk, copy the bundled master database into DATA_DIR so all 348
-    // verified tags, places, and node calibrations are preserved immediately!
-    if (!fs.existsSync(this.dataFilePath)) {
-      const seedCandidate = path.join(dataDir, 'campusnav_db.seed.json');
-      const masterSeedDir = findMasterSeedDataDir();
-      const masterSeedCandidate = path.join(masterSeedDir, 'campusnav_db.seed.json');
-      const masterDbPath = path.join(masterSeedDir, 'campusnav_db.json');
-      const seedSource = fs.existsSync(seedCandidate)
-        ? seedCandidate
-        : fs.existsSync(masterSeedCandidate)
-        ? masterSeedCandidate
-        : fs.existsSync(masterDbPath)
-        ? masterDbPath
-        : null;
+    const useFirestore = hasFirebaseCredentials();
+    this.repository = useFirestore ? new FirestoreRepository() : new InMemoryRepository();
 
-      if (seedSource && seedSource !== this.dataFilePath) {
-        try {
-          fs.copyFileSync(seedSource, this.dataFilePath);
-          console.log(`[CampusNav Store] Successfully auto-seeded fresh database from seed: ${seedSource} -> ${this.dataFilePath}`);
-        } catch (copyErr: any) {
-          console.error('[CampusNav Store] Could not auto-seed database:', copyErr.message);
+    this.state = this.loadOrSeed();
+    this.initializePanoramaMetadata();
+  }
+
+  public setRepository(repo: IDataRepository): void {
+    if (this.realtimeUnsubscribe) {
+      this.realtimeUnsubscribe();
+      this.realtimeUnsubscribe = undefined;
+    }
+    this.repository = repo;
+    this.setupRealtimeListeners();
+  }
+
+  public getRepository(): IDataRepository {
+    return this.repository;
+  }
+
+  public getRepositoryHealth(): RepositoryHealth {
+    return this.repository.getHealth();
+  }
+
+  private setupRealtimeListeners(): void {
+    if (this.realtimeUnsubscribe) {
+      this.realtimeUnsubscribe();
+    }
+    this.realtimeUnsubscribe = this.repository.subscribeRealtime({
+      onFacultyAccountChange: (account) => {
+        if (!this.state.facultyAccounts) this.state.facultyAccounts = [];
+        const fId = account.facultyId || account.id;
+        const idx = this.state.facultyAccounts.findIndex(a => (a.facultyId || a.id) === fId);
+        if (idx >= 0) {
+          this.state.facultyAccounts[idx] = account;
+        } else {
+          this.state.facultyAccounts.push(account);
+        }
+        this.invalidateCache();
+      },
+      onFacultyAccountDelete: (id) => {
+        if (this.state.facultyAccounts) {
+          this.state.facultyAccounts = this.state.facultyAccounts.filter(a => a.id !== id && a.facultyId !== id);
+          this.invalidateCache();
+        }
+      },
+      onFacultyStatusChange: (teacherId, status) => {
+        if (!this.state.facultyStatuses) this.state.facultyStatuses = {};
+        this.state.facultyStatuses[teacherId] = status;
+        this.invalidateCache();
+      },
+      onTeacherChange: (teacher) => {
+        if (!this.state.teachers) this.state.teachers = [];
+        const idx = this.state.teachers.findIndex(t => t.id === teacher.id);
+        if (idx >= 0) {
+          this.state.teachers[idx] = teacher;
+        } else {
+          this.state.teachers.push(teacher);
+        }
+        this.invalidateCache();
+      },
+      onGraphOverridesChange: (overrides) => {
+        this.state.graphOverrides = overrides;
+        this.invalidateCache();
+      },
+    });
+  }
+
+  public async initDatabase(): Promise<void> {
+    const hasCreds = hasFirebaseCredentials();
+
+    if (process.env.NODE_ENV === 'production') {
+      if (!hasCreds) {
+        console.error('[CampusNav Store] FATAL: Production server cannot start without Firebase credentials.');
+        throw new Error('Production server cannot start without Firebase credentials.');
+      }
+      await this.repository.connect();
+      const health = this.repository.getHealth();
+      if (!health.connected) {
+        console.error('[CampusNav Store] FATAL: Production server cannot start without connection to Cloud Firestore.');
+        throw new Error('Production server cannot start without connection to Cloud Firestore.');
+      }
+      // In production: NEVER start from seed or write seed data at boot
+      this.state = await this.repository.loadAll();
+      console.log(`[CampusNav Store] Authoritative boot from Cloud Firestore (${this.state.teachers?.length || 0} teachers, ${this.state.facultyAccounts?.length || 0} faculty accounts).`);
+    } else {
+      if (hasCreds) {
+        await this.repository.connect();
+        const health = this.repository.getHealth();
+        if (health.connected && health.provider === 'firestore') {
+          this.state = await this.repository.loadAll();
+          console.log(`[CampusNav Store] Loaded state from Cloud Firestore (${this.state.teachers?.length || 0} teachers).`);
+        }
+      } else {
+        console.log('DEV IN-MEMORY MODE: data is not saved');
+        await this.repository.connect();
+        if (this.repository instanceof InMemoryRepository) {
+          await this.repository.saveAll(this.state);
         }
       }
     }
 
-    this.state = this.loadOrSeed();
     this.initializePanoramaMetadata();
-    this.materializeUploadedPanoramaAssetsToDisk();
+    this.invalidateCache();
+    this.setupRealtimeListeners();
+  }
+
+  public async initCloudSync(): Promise<void> {
+    return this.initDatabase();
   }
 
   private initializePanoramaMetadata(): void {
@@ -255,7 +345,6 @@ class DataStore {
     if (!ov.publishStatus) {
       ov.publishStatus = ov.contentHash === ov.lastPublishedHash ? 'PUBLISHED' : 'DRAFT';
     }
-    gitSyncService.setMergeHandler((remoteJson) => this.handleCloudMergeConflict(remoteJson));
   }
 
   public getDataFilePath(): string {
@@ -295,74 +384,6 @@ class DataStore {
   }
 
   private _placeholderEndConstructor(): void {
-  }
-
-  public handleCloudMergeConflict(remoteJson: string): void {
-    try {
-      const remoteState: DatabaseState = JSON.parse(remoteJson);
-      if (!remoteState || !Array.isArray(remoteState.buildings)) return;
-
-      const localAccounts = this.state.facultyAccounts || [];
-      const remoteAccounts = Array.isArray(remoteState.facultyAccounts) ? remoteState.facultyAccounts : [];
-
-      const mergedAccounts = [...remoteAccounts];
-      for (const loc of localAccounts) {
-        const exists = remoteAccounts.some(
-          (r) =>
-            r.id === loc.id ||
-            (r.facultyId && loc.facultyId && r.facultyId.toLowerCase() === loc.facultyId.toLowerCase()) ||
-            (r.email && loc.email && r.email.toLowerCase() === loc.email.toLowerCase())
-        );
-        if (!exists) {
-          mergedAccounts.push(loc);
-        }
-      }
-
-      this.state.facultyAccounts = mergedAccounts;
-      if (remoteState.facultyStatuses) {
-        this.state.facultyStatuses = {
-          ...this.state.facultyStatuses,
-          ...remoteState.facultyStatuses,
-        };
-      }
-      this.saveStateToDisk(this.state);
-      this.invalidateCache();
-      console.log(`[CloudSync] Merged remote state on 409 conflict: ${mergedAccounts.length} faculty accounts.`);
-    } catch (err: any) {
-      console.warn('[CloudSync] Failed to merge remote state on conflict:', err?.message);
-    }
-  }
-
-  public async initCloudSync(): Promise<void> {
-    if (!gitSyncService.isConfigured()) {
-      console.warn(
-        '[Persistence] GITHUB_DATA_REPO/GITHUB_TOKEN not set: data is stored on local disk only and WILL BE LOST on restart/redeploy.'
-      );
-      return;
-    }
-    const isRenderEnv = Boolean(process.env.RENDER) || process.env.ENABLE_STARTUP_CLOUD_SYNC === 'true';
-    if (!isRenderEnv && fs.existsSync(this.dataFilePath)) {
-      return;
-    }
-    try {
-      console.log('[CampusNav Store] Checking GitHub for latest cloud database backup...');
-      const remoteRes = await gitSyncService.fetchLatestRemoteDatabase();
-      if (remoteRes && remoteRes.content) {
-        const parsed = JSON.parse(remoteRes.content);
-        if (parsed && Array.isArray(parsed.buildings) && parsed.buildings.length > 0) {
-          this.state = parsed;
-          this.saveStateToDisk(this.state);
-          this.initializePanoramaMetadata();
-          this.materializeUploadedPanoramaAssetsToDisk();
-          this.invalidateCache();
-          console.log(
-            `[CampusNav Store] Successfully synchronized latest database from GitHub backup (${parsed.teachers?.length || 0} teachers, ${parsed.facultyAccounts?.length || 0} faculty accounts).`
-          );
-        }
-      }
-    } catch (err: any) {
-      console.warn('[CampusNav Store] Could not sync database from GitHub on startup:', err?.message);
-    }
   }
 
   private loadFacultyDataset(): Teacher[] {
@@ -459,28 +480,27 @@ class DataStore {
   }
 
   private syncFacultyAndDepartmentsFiles(): void {
-    try {
-      const dataDir = findDataDir();
-      if (Array.isArray(this.state?.teachers)) {
-        const facultyJsonPath = path.join(dataDir, 'faculty.json');
-        fs.writeFileSync(facultyJsonPath, JSON.stringify(this.state.teachers, null, 2), 'utf-8');
-      }
-      if (Array.isArray(this.state?.departments)) {
-        const deptsJsonPath = path.join(dataDir, 'departments.json');
-        fs.writeFileSync(deptsJsonPath, JSON.stringify(this.state.departments, null, 2), 'utf-8');
-      }
-    } catch (err) {
-      console.warn('[CampusNav Store] Warning syncing faculty/departments JSON files:', err);
-    }
+    // No-op: Runtime disk persistence is deprecated in favor of Cloud Firestore
   }
 
   private loadOrSeed(): DatabaseState {
     const officialFaculty = this.loadFacultyDataset();
     const officialDepartments = this.loadDepartmentsDataset();
 
+    const dataDir = findDataDir();
+    const seedCandidate = path.join(dataDir, 'campusnav_db.seed.json');
+    const masterSeedCandidate = path.join(findMasterSeedDataDir(), 'campusnav_db.seed.json');
+    const seedSource = fs.existsSync(seedCandidate)
+      ? seedCandidate
+      : fs.existsSync(masterSeedCandidate)
+      ? masterSeedCandidate
+      : fs.existsSync(this.dataFilePath)
+      ? this.dataFilePath
+      : null;
+
     try {
-      if (fs.existsSync(this.dataFilePath)) {
-        const raw = fs.readFileSync(this.dataFilePath, 'utf-8');
+      if (seedSource && fs.existsSync(seedSource)) {
+        const raw = fs.readFileSync(seedSource, 'utf-8');
         const parsed = JSON.parse(raw);
         if (
           parsed &&
@@ -489,7 +509,7 @@ class DataStore {
           Array.isArray(parsed.navigationNodes) &&
           parsed.navigationNodes.length > 0
         ) {
-          if (!Array.isArray(parsed.panoramas) || parsed.panoramas.length === 0) {
+          if (!Array.isArray(parsed.panoramas) || parsed.panoramas.length < 50) {
             parsed.panoramas = JSON.parse(JSON.stringify(INITIAL_PANORAMAS));
           }
           parsed.buildings = JSON.parse(JSON.stringify(SEED_BUILDINGS));
@@ -626,66 +646,30 @@ class DataStore {
       facultyStatusAuditLogs: [],
       adminUsers: [getCollegeAdminDefaults()],
     };
-    this.saveStateToDisk(freshState);
     return freshState;
   }
 
   private saveStateToDisk(state: DatabaseState): void {
-    try {
-      const dir = path.dirname(this.dataFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      const tmpPath = `${this.dataFilePath}.${crypto.randomUUID()}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, this.dataFilePath);
-    } catch (err) {
-      console.error('[CampusNav Store] Failed to write database to disk:', err);
-    }
+    // No-op: Runtime disk writes are strictly prohibited. Cloud Firestore is the single source of truth.
   }
 
   private saveStateToDiskAsync(state: DatabaseState): void {
-    this.writeQueuePromise = this.writeQueuePromise
-      .then(async () => {
-        try {
-          const dir = path.dirname(this.dataFilePath);
-          if (!fs.existsSync(dir)) {
-            await fs.promises.mkdir(dir, { recursive: true });
-          }
-          const tmpPath = `${this.dataFilePath}.${crypto.randomUUID()}.tmp`;
-          const payload = JSON.stringify(state, null, 2);
-          await fs.promises.writeFile(tmpPath, payload, 'utf-8');
-          await fs.promises.rename(tmpPath, this.dataFilePath);
-        } catch (err) {
-          console.error('[CampusNav Store] Async database write failed:', err);
-        }
-      })
-      .catch(() => {});
+    // No-op: Runtime disk writes are strictly prohibited. Cloud Firestore is the single source of truth.
   }
 
   public persist(immediate: boolean = false, options?: { allowAccountRemoval?: boolean }): void {
-    if (immediate) {
-      if (this.persistTimer) {
-        clearTimeout(this.persistTimer);
-        this.persistTimer = null;
-      }
-      this.saveStateToDisk(this.state);
-      this.invalidateCache();
-      if (Boolean(process.env.RENDER) || process.env.AUTO_CLOUD_SYNC_ON_SAVE === 'true') {
-        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 500, options);
-      }
-      return;
-    }
-
-    if (this.persistTimer) return;
-
-    this.persistTimer = setTimeout(() => {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
       this.persistTimer = null;
-      this.saveStateToDiskAsync(this.state);
-      if (Boolean(process.env.RENDER) || process.env.AUTO_CLOUD_SYNC_ON_SAVE === 'true') {
-        gitSyncService.scheduleDebouncedSync(this.dataFilePath, 5000, options);
-      }
-    }, 10000);
+    }
+    this.invalidateCache();
+
+    // Granular write-through for graph overrides if present
+    if (this.state.graphOverrides) {
+      this.repository.saveGraphOverrides(this.state.graphOverrides).catch((err: any) => {
+        console.warn('[CampusNav Store] Graph overrides write-through warning:', err?.message);
+      });
+    }
   }
 
   public resetToSeed(): DatabaseState {
@@ -2354,37 +2338,7 @@ class DataStore {
   }
 
   public materializeUploadedPanoramaAssetsToDisk(): void {
-    try {
-      const overrides = this.getGraphOverrides();
-      const assets = overrides.uploadedPanoramaAssets || {};
-      const entries = Object.values(assets);
-      if (entries.length === 0) return;
-
-      const targetDirs = this.getUploadedAssetsDirectories();
-      for (const dir of targetDirs) {
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-      }
-
-      for (const asset of entries) {
-        if (!asset?.filename || !asset?.dataUrl) continue;
-        const safeName = path.basename(asset.filename);
-        const base64Match = asset.dataUrl.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
-        const rawBase64 = base64Match ? base64Match[1] : asset.dataUrl;
-        const buf = Buffer.from(rawBase64, 'base64');
-        if (buf.length === 0) continue;
-
-        for (const dir of targetDirs) {
-          const targetFile = path.join(dir, safeName);
-          if (!fs.existsSync(targetFile)) {
-            fs.writeFileSync(targetFile, buf);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.warn('[CampusNav Store] Warning materializing uploaded panorama assets:', err?.message);
-    }
+    // No-op: Panorama assets in graphOverrides.uploadedPanoramaAssets are served directly via memory buffer route
   }
 
   public getUploadedPanoramaAssetBuffer(filename: string): { buffer: Buffer; mimeType: string } | null {
@@ -3680,30 +3634,6 @@ class DataStore {
       },
     };
 
-    // Save snapshot payload to disk
-    try {
-      const snapshotsDir = path.join(findDataDir(), 'snapshots');
-      if (!fs.existsSync(snapshotsDir)) {
-        fs.mkdirSync(snapshotsDir, { recursive: true });
-      }
-      const snapshotFilePath = path.join(snapshotsDir, `${snapshotId}.json`);
-      const payload = {
-        metadata,
-        state: {
-          places: this.state.places,
-          rooms: this.state.rooms,
-          departments: this.state.departments,
-          teachers: this.state.teachers,
-          facilities: this.state.facilities,
-          graphOverrides: this.state.graphOverrides,
-          searchAliases: this.state.searchAliases,
-        },
-      };
-      fs.writeFileSync(snapshotFilePath, JSON.stringify(payload, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[CampusNav Store] Error writing snapshot file:', err);
-    }
-
     this.state.snapshots.unshift(metadata);
     // Keep last 30 snapshots
     if (this.state.snapshots.length > 30) {
@@ -3726,50 +3656,10 @@ class DataStore {
     snapshotId: string,
     performedBy: string = 'admin'
   ): { success: boolean; message: string; restoredCounts?: any } {
-    const snapshotsDir = path.join(findDataDir(), 'snapshots');
-    const snapshotFilePath = path.join(snapshotsDir, `${snapshotId}.json`);
-
-    if (!fs.existsSync(snapshotFilePath)) {
-      return { success: false, message: `Snapshot file for ${snapshotId} not found on disk.` };
-    }
-
-    try {
-      // 1. Take safety backup before rollback
-      this.createDataSnapshot(`Pre-Rollback Backup before restoring ${snapshotId}`, 'Automatic safety snapshot before rollback', 'system');
-
-      // 2. Read snapshot
-      const raw = fs.readFileSync(snapshotFilePath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (!parsed?.state) {
-        return { success: false, message: 'Invalid snapshot format.' };
-      }
-
-      if (Array.isArray(parsed.state.places)) this.state.places = parsed.state.places;
-      if (Array.isArray(parsed.state.rooms)) this.state.rooms = parsed.state.rooms;
-      if (Array.isArray(parsed.state.departments)) this.state.departments = parsed.state.departments;
-      if (Array.isArray(parsed.state.teachers)) this.state.teachers = parsed.state.teachers;
-      if (Array.isArray(parsed.state.facilities)) this.state.facilities = parsed.state.facilities;
-      if (parsed.state.graphOverrides) this.state.graphOverrides = parsed.state.graphOverrides;
-      if (Array.isArray(parsed.state.searchAliases)) this.state.searchAliases = parsed.state.searchAliases;
-
-      this.persist(true);
-
-      this.logAdminAction({
-        adminUsername: performedBy,
-        action: 'ROLLBACK_TO_SNAPSHOT',
-        entity: 'SNAPSHOT',
-        entityId: snapshotId,
-        notes: `Successfully restored state from snapshot ${snapshotId}.`,
-      });
-
-      return {
-        success: true,
-        message: `Successfully rolled back to snapshot ${parsed.metadata?.name || snapshotId}.`,
-        restoredCounts: parsed.metadata?.entityCounts,
-      };
-    } catch (err: any) {
-      return { success: false, message: `Rollback failed: ${err.message || 'Unknown error'}` };
-    }
+    return {
+      success: false,
+      message: 'Disk snapshot rollback has been disabled in favor of Cloud Firestore live versioning and audit logs. Use scripts/backupFirestore.ts for point-in-time state recovery.',
+    };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -4197,6 +4087,13 @@ class DataStore {
       this.state.facultyStatusAuditLogs = this.state.facultyStatusAuditLogs.slice(0, 2000);
     }
 
+    this.repository.saveFacultyStatus(params.facultyId, record).catch((err: any) => {
+      console.warn('[CampusNav Store] saveFacultyStatus write-through warning:', err?.message);
+    });
+    this.repository.addFacultyStatusAuditLog(log).catch((err: any) => {
+      console.warn('[CampusNav Store] addFacultyStatusAuditLog write-through warning:', err?.message);
+    });
+
     this.persist(true);
     return { record, log };
   }
@@ -4314,6 +4211,10 @@ class DataStore {
       notes: `Created faculty login account for ${account.facultyId} (${teacher.name})`,
     });
 
+    this.repository.saveFacultyAccount(account).catch((err: any) => {
+      console.warn('[CampusNav Store] saveFacultyAccount write-through warning:', err?.message);
+    });
+
     this.persist(true);
     return { ...account, temporaryPassword: tempPassword };
   }
@@ -4338,6 +4239,10 @@ class DataStore {
       before: { isActive: prevActive },
       after: { isActive },
       notes: `Faculty account ${isActive ? 'activated' : 'disabled'} for ${acc.facultyId}`,
+    });
+
+    this.repository.saveFacultyAccount(acc).catch((err: any) => {
+      console.warn('[CampusNav Store] saveFacultyAccount write-through warning:', err?.message);
     });
 
     this.persist(true);
@@ -4384,6 +4289,10 @@ class DataStore {
       notes: `Reset password for faculty account "${acc.id}" (${acc.facultyId})`,
     });
 
+    this.repository.saveFacultyAccount(acc).catch((err: any) => {
+      console.warn('[CampusNav Store] saveFacultyAccount write-through warning:', err?.message);
+    });
+
     this.persist(true);
     return { ...acc, temporaryPassword: tempPass };
   }
@@ -4391,6 +4300,10 @@ class DataStore {
   public recordFacultyLogin(accountId: string): void {
     if (!this.state.facultyAccounts) return;
     const acc = this.state.facultyAccounts.find((a) => a.id === accountId);
+    if (acc) {
+      acc.lastLoginAt = new Date().toISOString();
+      this.repository.saveFacultyAccount(acc).catch(() => {});
+    }
     if (!acc) return;
     acc.lastLoginAt = new Date().toISOString();
     this.persist(false);

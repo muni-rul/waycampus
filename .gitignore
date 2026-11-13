@@ -13,6 +13,9 @@ server/dist/
 !.env.example
 *.pem
 *.key
+*firebase*adminsdk*.json
+serviceAccount*.json
+*.service-account.json
 
 # IDE & OS files
 .DS_Store

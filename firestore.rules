@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// ============================================================================
+// CampNav Cloud Firestore Security Rules
+// ============================================================================
+// Architecture Overview:
+// - The CampNav application routes all database operations through an Express
+//   API backend service using the Firebase Admin SDK.
+// - The Firebase Admin SDK operates with privileged service account credentials
+//   and naturally bypasses Cloud Firestore Security Rules.
+// - Direct client SDK access (web, mobile, or unauthenticated/anonymous calls)
+//   to Cloud Firestore is strictly prohibited and locked down by design.
+// - Therefore, all direct client reads and writes are denied at the root.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Deny all direct client SDK reads and writes across all documents and collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
