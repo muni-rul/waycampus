@@ -217,13 +217,14 @@ async function runTests() {
     console.log('\n--- 3. Storage & Repository Persistence ---');
 
     // 3a: Verify query in-memory repository
-    const repoQueryResult = await (store as any).repository.queryCampusReports({ limit: 50 });
+    const repoQueryResult = await store.getRepository().queryCampusReports({ limit: 50 });
     assert(repoQueryResult.reports.length > 0, 'Reports persisted in repository');
     assert(repoQueryResult.reports[0].status === 'NEW', 'Initial report status is NEW');
     assert(repoQueryResult.reports[0].createdAt !== undefined, 'Report has createdAt timestamp');
 
     // 3b: Verify live server does not load all reports into memory
-    assert(Array.isArray(store.state.reports) && store.state.reports.length === 0, 'Live store memory state.reports remains unloaded (reads query repository on demand)');
+    const inMemoryReports = store.getInMemoryReports();
+    assert(Array.isArray(inMemoryReports) && inMemoryReports.length === 0, 'Live store memory state.reports remains unloaded (reads query repository on demand)');
 
     // -------------------------------------------------------------
     // 4. ADMIN ENDPOINTS: GET, PAGINATION, STATUS & NOTES

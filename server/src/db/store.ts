@@ -3688,6 +3688,13 @@ class DataStore {
     return await this.repository.queryCampusReports(options);
   }
 
+  /**
+   * Safe getter for in-memory reports buffer (keeps private state encapsulated).
+   */
+  public getInMemoryReports(): CampusReport[] {
+    return [...(this.state.reports || [])];
+  }
+
   public getReports(filter?: {
     status?: string;
     priority?: string;

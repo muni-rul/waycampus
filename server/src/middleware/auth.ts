@@ -120,17 +120,38 @@ export function generateSecureTempPassword(): string {
   return chars.join('');
 }
 
+export interface GenerateAdminTokenOptions {
+  username?: string;
+  role?: 'SUPER_ADMIN' | 'COLLEGE_ADMIN';
+  name?: string;
+  isPrimaryOwner?: boolean;
+}
+
 export function generateAdminToken(
-  username: string = 'admin',
+  optionsOrUsername?: string | GenerateAdminTokenOptions,
   role: 'SUPER_ADMIN' | 'COLLEGE_ADMIN' = 'COLLEGE_ADMIN',
   name: string = 'Admin',
   isPrimaryOwner: boolean = false
 ): string {
+  let u = 'admin';
+  let r: 'SUPER_ADMIN' | 'COLLEGE_ADMIN' = role;
+  let n = name;
+  let p = isPrimaryOwner;
+
+  if (typeof optionsOrUsername === 'object' && optionsOrUsername !== null) {
+    u = optionsOrUsername.username ?? 'admin';
+    r = optionsOrUsername.role ?? 'COLLEGE_ADMIN';
+    n = optionsOrUsername.name ?? 'Admin';
+    p = optionsOrUsername.isPrimaryOwner ?? false;
+  } else if (typeof optionsOrUsername === 'string') {
+    u = optionsOrUsername;
+  }
+
   const payload: AdminTokenPayload = {
-    role,
-    username,
-    name,
-    isPrimaryOwner,
+    role: r,
+    username: u,
+    name: n,
+    isPrimaryOwner: p,
     campusId: 'campus_christ_main',
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });

@@ -805,6 +805,14 @@ export type CampusReportIssueType =
   | 'SUGGESTION'
   | 'OTHER';
 
+export type CampusReportCategory =
+  | CampusReportIssueType
+  | 'WRONG_DIRECTION'
+  | 'MISSING_ROOM'
+  | 'INCORRECT_LABEL'
+  | 'ACCESSIBILITY'
+  | 'BROKEN_LINK';
+
 export type CampusReportStatus =
   | 'NEW'
   | 'ACKNOWLEDGED'
