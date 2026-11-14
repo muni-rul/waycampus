@@ -15,6 +15,7 @@ async function runSmokeTests() {
       ...process.env,
       NODE_ENV: 'production',
       PORT: '3099',
+      JWT_SECRET: 'test_super_secret_jwt_string_12345',
     };
     delete prodEnv.FIREBASE_SERVICE_ACCOUNT_JSON;
     delete prodEnv.GOOGLE_APPLICATION_CREDENTIALS;

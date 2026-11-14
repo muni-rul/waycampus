@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Building2,
   Layers,
@@ -13,10 +13,15 @@ import {
   MapPin,
   Shield,
   Save,
-  X
+  X,
+  Globe,
+  Phone,
+  Mail,
+  Info,
 } from 'lucide-react';
-import { Room, Department, Building, Teacher } from '../../../../../shared/types';
+import { Room, Department, Building, Teacher, CampusInfoData } from '../../../../../shared/types';
 import { getPanoramaThumbnail } from '../data/campusEntities';
+import { ApiService } from '../../../services/api';
 
 interface CampusSectionProps {
   buildings: Building[];
@@ -53,11 +58,42 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
   onSaveRoom,
   onDeleteRoom,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'ROOMS' | 'DEPARTMENTS' | 'BUILDINGS'>('ROOMS');
+  const [activeSubTab, setActiveSubTab] = useState<'ROOMS' | 'DEPARTMENTS' | 'BUILDINGS' | 'INFO'>('ROOMS');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBuildingFilter, setSelectedBuildingFilter] = useState('ALL');
   const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState('ALL');
   const [deptSearchQuery, setDeptSearchQuery] = useState('');
+
+  // Campus Info State
+  const [campusInfo, setCampusInfo] = useState<CampusInfoData>({
+    name: 'Christ College (Autonomous)',
+    address: 'Christ College (Autonomous), Irinjalakuda, Thrissur District, Kerala, India - 680125',
+    phone: '+91 480 2825258',
+    email: 'contact@christcollegeijk.edu.in',
+    website: 'https://christcollegeijk.edu.in',
+  });
+  const [isSavingCampusInfo, setIsSavingCampusInfo] = useState(false);
+  const [campusInfoConfirmOpen, setCampusInfoConfirmOpen] = useState(false);
+
+  // Department Edit State
+  const [deptList, setDeptList] = useState<Department[]>(departments);
+  const [editingDept, setEditingDept] = useState<Department | null>(null);
+  const [deptConfirmOpen, setDeptConfirmOpen] = useState(false);
+  const [isSavingDept, setIsSavingDept] = useState(false);
+
+  useEffect(() => {
+    setDeptList(departments);
+  }, [departments]);
+
+  useEffect(() => {
+    ApiService.getCampusInfo()
+      .then((res) => {
+        if (res && res.name) {
+          setCampusInfo(res);
+        }
+      })
+      .catch((err) => console.warn('Failed to load campus info:', err));
+  }, []);
 
   // Room modal state
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
@@ -70,8 +106,8 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
 
   // Unique departments for filter dropdown
   const uniqueDepartments = useMemo(() => {
-    return departments;
-  }, [departments]);
+    return deptList;
+  }, [deptList]);
 
   // Filtered Rooms with comprehensive department matching & building normalization
   const filteredRooms = useMemo(() => {
@@ -154,7 +190,7 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
 
         {/* Sub-Tabs */}
         <div className="flex p-1 bg-slate-100 border border-slate-200/80 rounded-2xl shrink-0">
-          {(['ROOMS', 'DEPARTMENTS', 'BUILDINGS'] as const).map((tab) => (
+          {(['ROOMS', 'DEPARTMENTS', 'BUILDINGS', 'INFO'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveSubTab(tab)}
@@ -167,8 +203,10 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
               {tab === 'ROOMS'
                 ? `Rooms & Classes (${rooms.length})`
                 : tab === 'DEPARTMENTS'
-                ? `Departments & Principal (${departments.length})`
-                : `Blocks & Buildings (${buildings.length})`}
+                ? `Departments & Principal (${deptList.length})`
+                : tab === 'BUILDINGS'
+                ? `Blocks & Buildings (${buildings.length})`
+                : `Campus Info`}
             </button>
           ))}
         </div>
@@ -377,7 +415,7 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {departments
+            {deptList
               .filter((d) => {
                 if (!deptSearchQuery.trim()) return true;
                 const q = deptSearchQuery.toLowerCase();
@@ -421,9 +459,18 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
                         }`}>
                           {dept.code || 'DEPT'}
                         </span>
-                        <span className="text-xs text-slate-500 font-medium">
-                          {dept.buildingName || 'Campus Main'}
-                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs text-slate-500 font-medium">
+                            {dept.buildingName || 'Campus Main'}
+                          </span>
+                          <button
+                            onClick={() => setEditingDept({ ...dept })}
+                            className="p-1 hover:bg-slate-100 text-slate-400 hover:text-blue-600 rounded transition cursor-pointer"
+                            title="Edit Department"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       <h4 className="text-sm font-black text-slate-900">{dept.name}</h4>
@@ -530,6 +577,104 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          4. CAMPUS INSTITUTIONAL INFO SUB-TAB
+          ───────────────────────────────────────────────────────────── */}
+      {activeSubTab === 'INFO' && (
+        <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-xs max-w-2xl space-y-5">
+          <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-900">Campus Institutional Details</h3>
+              <p className="text-xs text-slate-500">
+                Official institution details displayed on public navigation headers, footers and contact links.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 text-xs">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Campus Name</label>
+              <input
+                type="text"
+                value={campusInfo.name}
+                onChange={(e) => setCampusInfo({ ...campusInfo, name: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                placeholder="Christ College (Autonomous)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Campus Address</label>
+              <textarea
+                rows={3}
+                value={campusInfo.address}
+                onChange={(e) => setCampusInfo({ ...campusInfo, address: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 resize-none"
+                placeholder="Full official postal address"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Official Contact Phone</label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={campusInfo.phone}
+                    onChange={(e) => setCampusInfo({ ...campusInfo, phone: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                    placeholder="+91 480 2825258"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Official Contact Email</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    value={campusInfo.email}
+                    onChange={(e) => setCampusInfo({ ...campusInfo, email: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                    placeholder="contact@christcollegeijk.edu.in"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Official Website</label>
+              <div className="relative">
+                <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="url"
+                  value={campusInfo.website || ''}
+                  onChange={(e) => setCampusInfo({ ...campusInfo, website: e.target.value })}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                  placeholder="https://christcollegeijk.edu.in"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setCampusInfoConfirmOpen(true)}
+                className="px-5 py-2.5 bg-[#1a56db] hover:bg-blue-600 text-white font-bold rounded-xl shadow-xs transition flex items-center space-x-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Campus Info</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -727,6 +872,210 @@ export const CampusSection: React.FC<CampusSectionProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Campus Info Save Confirmation Dialog */}
+      {campusInfoConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-md p-6 bg-white border border-blue-200 rounded-3xl shadow-2xl text-slate-800 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-blue-600">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Confirm Campus Info Update</h3>
+                <p className="text-xs text-slate-500">Live platform modification</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5 text-slate-700">
+              <p>You are updating official campus institutional information for:</p>
+              <p className="font-bold text-slate-900">&ldquo;{campusInfo.name}&rdquo;</p>
+              <p className="text-[11px] text-slate-500">{campusInfo.address}</p>
+              <p className="text-[11px] text-slate-500">Phone: {campusInfo.phone} | Email: {campusInfo.email}</p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setCampusInfoConfirmOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setIsSavingCampusInfo(true);
+                  try {
+                    await ApiService.updateCampusInfo(campusInfo);
+                    setFeedbackMsg('Campus institutional info updated successfully.');
+                    setCampusInfoConfirmOpen(false);
+                    setTimeout(() => setFeedbackMsg(null), 4000);
+                  } catch (err: any) {
+                    alert(err.message || 'Failed to update campus info');
+                  } finally {
+                    setIsSavingCampusInfo(false);
+                  }
+                }}
+                disabled={isSavingCampusInfo}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center space-x-1.5"
+              >
+                {isSavingCampusInfo ? <span>Saving...</span> : <span>Confirm Update</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Department Edit Modal */}
+      {editingDept && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-lg p-6 bg-white border border-slate-200 rounded-3xl shadow-2xl text-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Edit Department</h3>
+                  <p className="text-xs text-slate-500">Modify details for {editingDept.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingDept(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1">Department Code</label>
+                  <input
+                    type="text"
+                    value={editingDept.code || ''}
+                    onChange={(e) => setEditingDept({ ...editingDept, code: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-900 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1">Building Location</label>
+                  <input
+                    type="text"
+                    value={editingDept.buildingName || ''}
+                    onChange={(e) => setEditingDept({ ...editingDept, buildingName: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">Department Name</label>
+                <input
+                  type="text"
+                  value={editingDept.name}
+                  onChange={(e) => setEditingDept({ ...editingDept, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">Head of Department (HOD)</label>
+                <input
+                  type="text"
+                  value={editingDept.headOfDepartment || ''}
+                  onChange={(e) => setEditingDept({ ...editingDept, headOfDepartment: e.target.value })}
+                  placeholder="e.g. Dr. Xavier Joseph"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-bold mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  value={editingDept.description || ''}
+                  onChange={(e) => setEditingDept({ ...editingDept, description: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingDept(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeptConfirmOpen(true)}
+                  className="px-4 py-2 bg-[#1a56db] hover:bg-blue-600 text-white font-bold rounded-xl shadow-xs cursor-pointer flex items-center space-x-1.5"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Department Save Confirmation Dialog */}
+      {deptConfirmOpen && editingDept && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-md p-6 bg-white border border-blue-200 rounded-3xl shadow-2xl text-slate-800 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-blue-600">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Confirm Department Update</h3>
+                <p className="text-xs text-slate-500">Live platform modification</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1 text-slate-700">
+              <p>You are saving changes for department:</p>
+              <p className="font-bold text-slate-900">&ldquo;{editingDept.name}&rdquo; ({editingDept.code})</p>
+              <p className="text-[11px] text-slate-500">HOD: {editingDept.headOfDepartment || 'Not set'}</p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setDeptConfirmOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setIsSavingDept(true);
+                  try {
+                    await ApiService.updateDepartment(editingDept.id, editingDept);
+                    setDeptList((prev) =>
+                      prev.map((d) => (d.id === editingDept.id ? { ...d, ...editingDept } : d))
+                    );
+                    setFeedbackMsg(`Department "${editingDept.name}" updated successfully.`);
+                    setDeptConfirmOpen(false);
+                    setEditingDept(null);
+                    setTimeout(() => setFeedbackMsg(null), 4000);
+                  } catch (err: any) {
+                    alert(err.message || 'Failed to update department');
+                  } finally {
+                    setIsSavingDept(false);
+                  }
+                }}
+                disabled={isSavingDept}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center space-x-1.5"
+              >
+                {isSavingDept ? <span>Saving...</span> : <span>Confirm Update</span>}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -25,6 +25,8 @@ import {
   SearchAlias,
   AdminAuditAction,
   SystemValidationReport,
+  CampusInfoData,
+  CampusEventItem,
 } from '../../../shared/types';
 import { PanoramaNode } from '../../../shared/types';
 import { logoutAdmin } from '../utils/security';
@@ -952,50 +954,6 @@ export class ApiService {
     return data;
   }
 
-  public static async deployToRender(deployHookUrl?: string): Promise<{
-    success: boolean;
-    gitSuccess?: boolean;
-    commitHash?: string;
-    hookTriggered?: boolean;
-    message?: string;
-    error?: string;
-  }> {
-    const res = await fetch(`${getApiBaseUrl()}/publish/deploy`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.getAuthHeaders(),
-      },
-      body: JSON.stringify({ deployHookUrl }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Publish failed' }));
-      throw new Error(err.error || 'Publish failed');
-    }
-    return await res.json();
-  }
-
-  public static getDatabaseExportUrl(): string {
-    const token = sessionStorage.getItem('campnav_admin_token');
-    return token ? `${getApiBaseUrl()}/publish/export-db?token=${encodeURIComponent(token)}` : `${getApiBaseUrl()}/publish/export-db`;
-  }
-
-  public static async importDatabase(payload: any): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${getApiBaseUrl()}/publish/import-db`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.getAuthHeaders(),
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Database import failed' }));
-      throw new Error(err.error || 'Database import failed');
-    }
-    return await res.json();
-  }
-
   // ─────────────────────────────────────────────────────────────
   // BUG REPORTING & FEEDBACK CLIENT METHODS (DUAL-STORAGE RESILIENT)
   // ─────────────────────────────────────────────────────────────
@@ -1174,10 +1132,15 @@ export class ApiService {
     category?: string;
     search?: string;
     buildingId?: string;
+    startDate?: string;
+    endDate?: string;
+    cursor?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ success: boolean; total: number; reports: CampusReport[] }> {
+  }): Promise<{ success: boolean; total: number; reports: CampusReport[]; nextCursor?: string }> {
     let serverReports: CampusReport[] = [];
+    let serverTotal: number | undefined;
+    let serverNextCursor: string | undefined;
 
     // 1. Attempt to fetch from backend server (/api/v1/admin/reports)
     try {
@@ -1187,6 +1150,9 @@ export class ApiService {
       if (params?.category) query.set('category', params.category);
       if (params?.search) query.set('search', params.search);
       if (params?.buildingId) query.set('buildingId', params.buildingId);
+      if (params?.startDate) query.set('startDate', params.startDate);
+      if (params?.endDate) query.set('endDate', params.endDate);
+      if (params?.cursor) query.set('cursor', params.cursor);
       if (params?.limit) query.set('limit', String(params.limit));
       if (params?.offset) query.set('offset', String(params.offset));
 
@@ -1199,6 +1165,8 @@ export class ApiService {
         const data = await res.json();
         if (data.success && Array.isArray(data.reports)) {
           serverReports = data.reports;
+          serverTotal = data.total;
+          serverNextCursor = data.nextCursor;
         }
       }
     } catch (err) {
@@ -1335,17 +1303,6 @@ export class ApiService {
     } catch {}
 
     return { success: true, message: 'Report deleted successfully' };
-  }
-
-  public static async clearAllAdminReports(): Promise<{ success: boolean; message: string }> {
-    this.setLocalReports([]);
-    try {
-      await fetch(`${getApiBaseUrl()}/admin/reports`, {
-        method: 'DELETE',
-        headers: this.getAuthHeaders(),
-      });
-    } catch {}
-    return { success: true, message: 'All reports cleared' };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1658,41 +1615,6 @@ export class ApiService {
     return await res.json();
   }
 
-  public static async overrideAdminFacultyStatus(
-    facultyId: string,
-    data: {
-      status: FacultyStatusType;
-      locationPlaceId?: string;
-      reason?: string;
-      durationMinutes?: number;
-    }
-  ): Promise<{ success: boolean; message: string; status: any; log: any }> {
-    const res = await fetch(`${getApiBaseUrl()}/admin/faculty/${encodeURIComponent(facultyId)}/override-status`, {
-      method: 'POST',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to override status' }));
-      throw new Error(err.error || 'Failed to override status');
-    }
-    return await res.json();
-  }
-
-  public static async getAdminFacultyStatusLogs(facultyId?: string): Promise<{ success: boolean; logs: any[] }> {
-    const url = facultyId
-      ? `${getApiBaseUrl()}/admin/faculty/status-logs?facultyId=${encodeURIComponent(facultyId)}`
-      : `${getApiBaseUrl()}/admin/faculty/status-logs`;
-    const res = await fetch(url, {
-      headers: this.getAuthHeaders(),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to fetch status logs' }));
-      throw new Error(err.error || 'Failed to fetch status logs');
-    }
-    return await res.json();
-  }
-
   public static async previewEmailImport(rows: Array<{ facultyId: string; email: string }>): Promise<{
     success: boolean;
     valid: Array<{ facultyId: string; name: string; department: string; oldEmail: string; newEmail: string }>;
@@ -1870,6 +1792,85 @@ export class ApiService {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to run system validation' }));
       throw new Error(err.error || 'Failed to run system validation');
+    }
+    return await res.json();
+  }
+
+  public static async bulkUpdateAdminReports(
+    ids: string[],
+    status: CampusReportStatus
+  ): Promise<{ success: boolean; message: string; count: number }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/reports/bulk-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify({ ids, status }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to bulk update reports' }));
+      throw new Error(err.error || 'Failed to bulk update reports');
+    }
+    return await res.json();
+  }
+
+  public static async getCampusInfo(): Promise<CampusInfoData> {
+    const res = await fetch(`${getApiBaseUrl()}/campus/info`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch campus info');
+    }
+    return await res.json();
+  }
+
+  public static async updateCampusInfo(info: CampusInfoData): Promise<{ success: boolean; info: CampusInfoData }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/campus/info`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify(info),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update campus info' }));
+      throw new Error(err.error || 'Failed to update campus info');
+    }
+    return await res.json();
+  }
+
+  public static async getEvents(): Promise<{ success: boolean; events: CampusEventItem[] }> {
+    const res = await fetch(`${getApiBaseUrl()}/events`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch campus events');
+    }
+    return await res.json();
+  }
+
+  public static async saveEvent(event: Partial<CampusEventItem>): Promise<{ success: boolean; event: CampusEventItem }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
+      },
+      body: JSON.stringify(event),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to save event' }));
+      throw new Error(err.error || 'Failed to save event');
+    }
+    return await res.json();
+  }
+
+  public static async deleteEvent(id: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${getApiBaseUrl()}/admin/events/${id}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to delete event' }));
+      throw new Error(err.error || 'Failed to delete event');
     }
     return await res.json();
   }

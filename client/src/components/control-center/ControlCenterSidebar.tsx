@@ -20,7 +20,9 @@ import {
   Shield,
   Layers,
   Crown,
-  KeyRound
+  KeyRound,
+  HelpCircle,
+  FileText
 } from 'lucide-react';
 
 export type ControlCenterSectionId =
@@ -29,7 +31,10 @@ export type ControlCenterSectionId =
   | 'tags'
   | 'faculty'
   | 'credentials'
+  | 'reports'
   | 'panoramas'
+  | 'activity'
+  | 'help'
   | 'publish';
 
 interface ControlCenterSidebarProps {
@@ -44,7 +49,7 @@ interface NavItem {
   id: ControlCenterSectionId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  group: 'DASHBOARD' | 'CAMPUS DATA' | 'PUBLISH';
+  group: 'DASHBOARD' | 'CAMPUS DATA' | 'HELP & SYSTEM' | 'PUBLISH';
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -53,7 +58,10 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tags', label: 'Tags & Places', icon: MapPin, group: 'CAMPUS DATA' },
   { id: 'faculty', label: 'Faculty Details', icon: Users, group: 'CAMPUS DATA' },
   { id: 'credentials', label: 'Faculty Credentials', icon: KeyRound, group: 'CAMPUS DATA' },
+  { id: 'reports', label: 'Reports', icon: Flag, group: 'CAMPUS DATA' },
   { id: 'panoramas', label: 'Edit Connections', icon: Camera, group: 'CAMPUS DATA' },
+  { id: 'activity', label: 'Activity Log', icon: History, group: 'CAMPUS DATA' },
+  { id: 'help', label: 'Help', icon: HelpCircle, group: 'HELP & SYSTEM' },
   { id: 'publish', label: 'Publish', icon: UploadCloud, group: 'PUBLISH' },
 ];
 

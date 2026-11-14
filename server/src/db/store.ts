@@ -45,6 +45,8 @@ import {
   CustomPanoramaDefinition,
   UploadedPanoramaAsset,
   NodeMetadataOverride,
+  CampusInfoData,
+  CampusEventItem,
 } from '../../../shared/types';
 import {
   VERIFIED_CLASSROOMS,
@@ -60,7 +62,7 @@ import {
   isValidCollegeEmail,
 } from '../middleware/auth';
 import crypto from 'crypto';
-import { IDataRepository, RepositoryHealth } from './repository/IDataRepository';
+import { IDataRepository, RepositoryHealth, ReportQueryOptions, ReportQueryResult } from './repository/IDataRepository';
 import { FirestoreRepository } from './repository/FirestoreRepository';
 import { InMemoryRepository } from './repository/InMemoryRepository';
 import {
@@ -1583,6 +1585,17 @@ class DataStore {
     this.recomputeDepartmentFacultyCounts();
     this.syncFacultyAndDepartmentsFiles();
     this.touchDataStateForPublish(updatedBy);
+    this.repository.saveDepartment(this.state.departments[index]).catch(() => {});
+    this.logAdminAction({
+      adminUsername: updatedBy,
+      action: 'UPDATE_DEPARTMENT',
+      entity: 'DEPARTMENT',
+      entityId: id,
+      after: {
+        headOfDepartment: updatedDept.headOfDepartment,
+        code: updatedDept.code,
+      },
+    });
     this.persist(true);
     return this.state.departments[index];
   }
@@ -3597,6 +3610,9 @@ class DataStore {
     if (this.state.adminAuditActions.length > 500) {
       this.state.adminAuditActions = this.state.adminAuditActions.slice(0, 500);
     }
+    this.repository.addAdminAuditAction(action).catch((err: any) => {
+      console.warn('[CampusNav Store] audit write-through warning:', err?.message);
+    });
     return action;
   }
 
@@ -3665,6 +3681,13 @@ class DataStore {
   // ─────────────────────────────────────────────────────────────
   // BUG REPORTING & FEEDBACK ENGINE
   // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // BUG REPORTING & FEEDBACK ENGINE (FIRESTORE PERSISTENT)
+  // ─────────────────────────────────────────────────────────────
+  public async queryReports(options?: ReportQueryOptions): Promise<ReportQueryResult> {
+    return await this.repository.queryCampusReports(options);
+  }
+
   public getReports(filter?: {
     status?: string;
     priority?: string;
@@ -3695,6 +3718,7 @@ class DataStore {
         const q = filter.search.trim().toLowerCase();
         reports = reports.filter((r) =>
           r.id.toLowerCase().includes(q) ||
+          (r.message && r.message.toLowerCase().includes(q)) ||
           (r.description && r.description.toLowerCase().includes(q)) ||
           (r.reportedEntityId && r.reportedEntityId.toLowerCase().includes(q)) ||
           (r.currentPanoramaId && r.currentPanoramaId.toLowerCase().includes(q)) ||
@@ -3720,79 +3744,47 @@ class DataStore {
 
     const total = reports.length;
     const offset = filter?.offset || 0;
-    const limit = filter?.limit || 100;
+    const limit = filter?.limit || 50;
     const paginated = reports.slice(offset, offset + limit);
 
     return { reports: paginated, total };
+  }
+
+  public async getReportByIdAsync(id: string): Promise<CampusReport | null> {
+    return await this.repository.getCampusReportById(id);
   }
 
   public getReportById(id: string): CampusReport | undefined {
     return (this.state.reports || []).find((r) => r.id === id);
   }
 
-  public createReport(data: Partial<CampusReport>): CampusReport {
+  public async createReportAsync(data: Partial<CampusReport>): Promise<CampusReport> {
     if (!this.state.reports) {
       this.state.reports = [];
     }
 
     const now = new Date().toISOString();
-    const count = this.state.reports.length + 1;
-    const year = new Date().getFullYear();
-    const id = `WC-${year}-${String(count).padStart(5, '0')}`;
-
-    // Auto default priority based on issue type if not explicitly set
-    let priority: CampusReportPriority = data.priority || 'MEDIUM';
-    if (!data.priority) {
-      if (
-        data.issueType === 'WRONG_NAVIGATION' ||
-        data.issueType === 'WRONG_LOCATION' ||
-        data.issueType === 'WRONG_ROOM' ||
-        data.issueType === 'WRONG_DEPARTMENT' ||
-        data.issueType === 'PANORAMA_PROBLEM' ||
-        data.issueType === 'WRONG_ARROW'
-      ) {
-        priority = 'HIGH';
-      } else if (
-        data.issueType === 'SUGGESTION' ||
-        data.issueType === 'OTHER'
-      ) {
-        priority = 'LOW';
-      }
-    }
-
-    // Duplicate detection check
-    let possibleDuplicateOf: string | undefined;
-    const existingReports = this.state.reports;
-    const matchDuplicate = existingReports.find(
-      (r) =>
-        r.status !== 'RESOLVED' &&
-        r.status !== 'REJECTED' &&
-        r.issueType === data.issueType &&
-        (
-          (data.reportedEntityId && r.reportedEntityId === data.reportedEntityId) ||
-          (data.currentPanoramaId && r.currentPanoramaId === data.currentPanoramaId && data.currentPanoramaId) ||
-          (data.currentNodeId && r.currentNodeId === data.currentNodeId && data.currentNodeId)
-        )
-    );
-    if (matchDuplicate) {
-      possibleDuplicateOf = matchDuplicate.id;
-    }
+    const serverId = `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const msg = String(data.message || data.description || '').trim();
 
     const newReport: CampusReport = {
-      id,
+      id: serverId,
       createdAt: now,
       updatedAt: now,
       issueType: data.issueType || 'OTHER',
-      category: data.category || (data.issueType || 'OTHER').replace(/_/g, ' '),
-      description: data.description || '',
+      category: data.category || 'OTHER',
+      description: msg,
+      message: msg,
       status: 'NEW',
-      priority,
+      priority: data.priority || 'MEDIUM',
       reporterName: data.reporterName?.trim() || undefined,
       reporterContact: data.reporterContact?.trim() || undefined,
-      reporterType: data.reporterType || 'anonymous',
+      reporterType: data.reporterType || 'student',
 
-      currentPanoramaId: data.currentPanoramaId,
-      currentNodeId: data.currentNodeId,
+      nodeId: data.nodeId || data.currentNodeId || data.currentPanoramaId,
+      page: data.page || data.currentURL,
+      currentPanoramaId: data.currentPanoramaId || data.currentNodeId,
+      currentNodeId: data.currentNodeId || data.nodeId,
       currentBuildingId: data.currentBuildingId,
       currentFloorId: data.currentFloorId,
       currentPlaceId: data.currentPlaceId,
@@ -3806,11 +3798,14 @@ class DataStore {
       reportedEntityId: data.reportedEntityId,
       blockId: data.blockId,
       blockName: data.blockName,
-      currentURL: data.currentURL,
+      currentURL: data.currentURL || data.page,
       device: data.device,
-      browser: data.browser,
+      browser: data.browser ? data.browser.slice(0, 150) : undefined,
       screenSize: data.screenSize,
       appVersion: data.appVersion || '1.0.0',
+
+      attachment: data.attachment,
+      screenshot: data.screenshot,
 
       adminNotes: '',
       history: [
@@ -3821,12 +3816,113 @@ class DataStore {
           note: 'Initial user report submitted',
         },
       ],
-      possibleDuplicateOf,
+      possibleDuplicateOf: data.possibleDuplicateOf,
+    };
+
+    // The live server only writes to the repository; admin queries read on demand
+    await this.repository.saveCampusReport(newReport);
+    return newReport;
+  }
+
+  public createReport(data: Partial<CampusReport>): CampusReport {
+    if (!this.state.reports) {
+      this.state.reports = [];
+    }
+
+    const now = new Date().toISOString();
+    const serverId = `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const msg = String(data.message || data.description || '').trim();
+
+    const newReport: CampusReport = {
+      id: serverId,
+      createdAt: now,
+      updatedAt: now,
+      issueType: data.issueType || 'OTHER',
+      category: data.category || 'OTHER',
+      description: msg,
+      message: msg,
+      status: 'NEW',
+      priority: data.priority || 'MEDIUM',
+      reporterName: data.reporterName?.trim() || undefined,
+      reporterContact: data.reporterContact?.trim() || undefined,
+      reporterType: data.reporterType || 'student',
+
+      nodeId: data.nodeId || data.currentNodeId || data.currentPanoramaId,
+      page: data.page || data.currentURL,
+      currentPanoramaId: data.currentPanoramaId || data.currentNodeId,
+      currentNodeId: data.currentNodeId || data.nodeId,
+      currentBuildingId: data.currentBuildingId,
+      currentFloorId: data.currentFloorId,
+      currentPlaceId: data.currentPlaceId,
+      currentTagId: data.currentTagId,
+      selectedDestinationId: data.selectedDestinationId,
+      routeId: data.routeId,
+      routeStepIndex: data.routeStepIndex,
+      originNodeId: data.originNodeId,
+      destinationNodeId: data.destinationNodeId,
+      reportedEntityType: data.reportedEntityType,
+      reportedEntityId: data.reportedEntityId,
+      blockId: data.blockId,
+      blockName: data.blockName,
+      currentURL: data.currentURL || data.page,
+      device: data.device,
+      browser: data.browser ? data.browser.slice(0, 150) : undefined,
+      screenSize: data.screenSize,
+      appVersion: data.appVersion || '1.0.0',
+
+      attachment: data.attachment,
+      screenshot: data.screenshot,
+
+      adminNotes: '',
+      history: [
+        {
+          timestamp: now,
+          action: 'CREATED',
+          newStatus: 'NEW',
+          note: 'Initial user report submitted',
+        },
+      ],
+      possibleDuplicateOf: data.possibleDuplicateOf,
     };
 
     this.state.reports.unshift(newReport);
-    this.persist(true);
+    this.repository.saveCampusReport(newReport).catch((err: any) => {
+      console.warn('[CampusNav Store] Report write-through warning:', err?.message);
+    });
     return newReport;
+  }
+
+  public async updateReportAsync(
+    id: string,
+    updates: {
+      status?: CampusReportStatus;
+      priority?: CampusReportPriority;
+      adminNotes?: string;
+    },
+    updatedBy: string = 'Admin'
+  ): Promise<CampusReport | null> {
+    const updated = await this.repository.updateCampusReport(id, updates);
+    if (!updated) return null;
+
+    // Update in-memory state if present
+    if (this.state.reports) {
+      const idx = this.state.reports.findIndex((r) => r.id === id);
+      if (idx >= 0) {
+        this.state.reports[idx] = updated;
+      }
+    }
+
+    this.logAdminAction({
+      adminUsername: updatedBy,
+      action: 'UPDATE_REPORT',
+      entity: 'REPORT',
+      entityId: id,
+      after: {
+        status: updates.status || updated.status,
+      },
+    });
+
+    return updated;
   }
 
   public updateReport(
@@ -3871,24 +3967,179 @@ class DataStore {
       changedBy: updatedBy,
     });
 
-    this.persist(true);
+    this.repository.updateCampusReport(id, updates).catch((err: any) => {
+      console.warn('[CampusNav Store] updateCampusReport warning:', err?.message);
+    });
+
+    this.logAdminAction({
+      adminUsername: updatedBy,
+      action: 'UPDATE_REPORT',
+      entity: 'REPORT',
+      entityId: id,
+      after: {
+        status: report.status,
+      },
+    });
+
     return report;
+  }
+
+  public async deleteReportAsync(id: string, deletedBy: string = 'Admin'): Promise<boolean> {
+    const success = await this.repository.deleteCampusReport(id);
+    if (this.state.reports) {
+      this.state.reports = this.state.reports.filter((r) => r.id !== id);
+    }
+    if (success) {
+      this.logAdminAction({
+        adminUsername: deletedBy,
+        action: 'DELETE_REPORT',
+        entity: 'REPORT',
+        entityId: id,
+      });
+    }
+    return success;
   }
 
   public deleteReport(id: string): boolean {
     if (!this.state.reports) return false;
     const prevLen = this.state.reports.length;
     this.state.reports = this.state.reports.filter((r) => r.id !== id);
-    this.persist(true);
-    return this.state.reports.length < prevLen;
+    this.repository.deleteCampusReport(id).catch(() => {});
+    const success = this.state.reports.length < prevLen;
+    if (success) {
+      this.logAdminAction({
+        adminUsername: 'Admin',
+        action: 'DELETE_REPORT',
+        entity: 'REPORT',
+        entityId: id,
+      });
+    }
+    return success;
+  }
+
+  public async bulkUpdateReports(
+    ids: string[],
+    status: CampusReportStatus,
+    updatedBy: string = 'Admin'
+  ): Promise<number> {
+    let count = 0;
+    for (const id of ids) {
+      const updated = await this.repository.updateCampusReport(id, { status });
+      if (updated) {
+        count++;
+        if (this.state.reports) {
+          const idx = this.state.reports.findIndex((r) => r.id === id);
+          if (idx >= 0) {
+            this.state.reports[idx] = updated;
+          }
+        }
+      }
+    }
+
+    this.logAdminAction({
+      adminUsername: updatedBy,
+      action: 'BULK_UPDATE_REPORTS',
+      entity: 'REPORT',
+      entityId: ids.slice(0, 10).join(','),
+      after: {
+        count,
+        status,
+      },
+    });
+
+    return count;
   }
 
   public clearAllReports(): number {
     if (!this.state.reports) return 0;
     const count = this.state.reports.length;
     this.state.reports = [];
-    this.persist(true);
     return count;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // GAP (i): CAMPUS INFORMATION MANAGEMENT
+  // ─────────────────────────────────────────────────────────────
+  public getCampusInfo(): CampusInfoData {
+    const org = this.state.organizations?.[0] || SEED_ORGANIZATION;
+    const campus = this.state.campuses?.[0] || SEED_CAMPUS;
+    return {
+      name: org.shortName || org.name || campus.name,
+      collegeName: org.name,
+      address: campus.address || 'Christ College Road, Irinjalakuda, Kerala 680125, India',
+      location: campus.location,
+      phone: org.contactPhone || '+91 480 2825258',
+      mobile: '+91 7907129338',
+      email: org.contactEmail || 'office@christcollegeijk.edu.in',
+      website: org.website,
+      virtualTourUrl: 'https://christcollegeijk.edu.in/virtual-tour/',
+    };
+  }
+
+  public async updateCampusInfo(info: CampusInfoData, adminUser: string = 'Admin'): Promise<CampusInfoData> {
+    if (this.state.organizations && this.state.organizations.length > 0) {
+      if (info.name) {
+        this.state.organizations[0].name = info.collegeName || info.name;
+        this.state.organizations[0].shortName = info.name;
+      }
+      if (info.phone) this.state.organizations[0].contactPhone = info.phone;
+      if (info.email) this.state.organizations[0].contactEmail = info.email;
+      if (info.website) this.state.organizations[0].website = info.website;
+    }
+    if (this.state.campuses && this.state.campuses.length > 0) {
+      if (info.name) this.state.campuses[0].name = info.name;
+      if (info.address) this.state.campuses[0].address = info.address;
+      if (info.location) this.state.campuses[0].location = info.location;
+    }
+
+    await this.repository.saveCampusInfo(info);
+
+    this.logAdminAction({
+      adminUsername: adminUser,
+      action: 'UPDATE_CAMPUS_INFO',
+      entity: 'CAMPUS_INFO',
+      entityId: 'campus_main',
+      after: {
+        name: info.name,
+        phone: info.phone,
+        email: info.email,
+      },
+    });
+
+    return this.getCampusInfo();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // GAP (ii): EVENTS CALENDAR MANAGEMENT
+  // ─────────────────────────────────────────────────────────────
+  public async getCampusEvents(): Promise<CampusEventItem[]> {
+    return await this.repository.getCampusEvents();
+  }
+
+  public async saveCampusEvent(event: CampusEventItem, adminUser: string = 'Admin'): Promise<CampusEventItem> {
+    await this.repository.saveCampusEvent(event);
+    this.logAdminAction({
+      adminUsername: adminUser,
+      action: 'SAVE_EVENT',
+      entity: 'CAMPUS_EVENT',
+      entityId: event.id,
+      after: {
+        title: event.title,
+        date: event.date,
+      },
+    });
+    return event;
+  }
+
+  public async deleteCampusEvent(id: string, adminUser: string = 'Admin'): Promise<boolean> {
+    await this.repository.deleteCampusEvent(id);
+    this.logAdminAction({
+      adminUsername: adminUser,
+      action: 'DELETE_EVENT',
+      entity: 'CAMPUS_EVENT',
+      entityId: id,
+    });
+    return true;
   }
 
   // ─────────────────────────────────────────────────────────────

@@ -2,10 +2,13 @@ import {
   IDataRepository,
   RepositoryHealth,
   RealtimeSubscriptionCallbacks,
+  ReportQueryOptions,
+  ReportQueryResult,
 } from './IDataRepository';
 import { DatabaseState } from '../store';
 import {
   Teacher,
+  Department,
   GraphOverrideData,
   CampusReport,
   FacultyAccount,
@@ -13,6 +16,8 @@ import {
   FacultyStatusAuditLog,
   SearchAlias,
   AdminAuditAction,
+  CampusInfoData,
+  CampusEventItem,
 } from '../../../../shared/types';
 import { AdminUser } from '../../middleware/auth';
 import crypto from 'crypto';
@@ -379,9 +384,8 @@ export class FirestoreRepository implements IDataRepository {
       const adminUsersSnap = await this.db.collection('adminUsers').get();
       state.adminUsers = adminUsersSnap.docs.map((d: any) => d.data() as AdminUser);
 
-      // 9. Campus Reports
-      const reportsSnap = await this.db.collection('campusReports').limit(500).get();
-      state.reports = reportsSnap.docs.map((d: any) => d.data() as CampusReport);
+      // 9. Campus Reports: Live server does NOT load reports into memory; admin routes query directly
+      state.reports = [];
 
       this.lastSyncAt = new Date().toISOString();
       return state;
@@ -790,7 +794,115 @@ export class FirestoreRepository implements IDataRepository {
 
   async saveCampusReport(report: CampusReport): Promise<void> {
     if (!this.db) throw new Error('Firestore is not initialized.');
-    await this.db.collection('campusReports').doc(report.id).set(report);
+    await this.db.collection('reports').doc(report.id).set(report);
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async queryCampusReports(options?: ReportQueryOptions): Promise<ReportQueryResult> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    let query: any = this.db.collection('reports');
+
+    if (options?.status && options.status !== 'ALL') {
+      query = query.where('status', '==', options.status);
+    }
+    if (options?.category && options.category !== 'ALL') {
+      query = query.where('category', '==', options.category);
+    }
+
+    query = query.orderBy('createdAt', 'desc');
+
+    if (options?.cursor) {
+      const cursorDoc = await this.db.collection('reports').doc(options.cursor).get();
+      if (cursorDoc.exists) {
+        query = query.startAfter(cursorDoc);
+      }
+    }
+
+    const limit = Math.min(options?.limit || 50, 50);
+    query = query.limit(limit);
+
+    const snapshot = await query.get();
+    let reports: CampusReport[] = snapshot.docs.map((doc: any) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.toLowerCase().trim();
+      reports = reports.filter((r) =>
+        (r.message && r.message.toLowerCase().includes(q)) ||
+        (r.description && r.description.toLowerCase().includes(q)) ||
+        (r.reporterName && r.reporterName.toLowerCase().includes(q)) ||
+        (r.reporterContact && r.reporterContact.toLowerCase().includes(q)) ||
+        (r.currentNodeId && r.currentNodeId.toLowerCase().includes(q)) ||
+        (r.category && r.category.toLowerCase().includes(q))
+      );
+    }
+
+    const nextCursor = snapshot.docs.length === limit ? snapshot.docs[snapshot.docs.length - 1].id : undefined;
+    return {
+      reports,
+      total: reports.length,
+      nextCursor,
+    };
+  }
+
+  async getCampusReportById(id: string): Promise<CampusReport | null> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    const doc = await this.db.collection('reports').doc(id).get();
+    if (!doc.exists) return null;
+    return { id: doc.id, ...doc.data() } as CampusReport;
+  }
+
+  async updateCampusReport(id: string, updates: Partial<CampusReport>): Promise<CampusReport | null> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    const docRef = this.db.collection('reports').doc(id);
+    await docRef.set({ ...updates, updatedAt: new Date().toISOString() }, { merge: true });
+    this.lastSyncAt = new Date().toISOString();
+    return this.getCampusReportById(id);
+  }
+
+  async deleteCampusReport(id: string): Promise<boolean> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    await this.db.collection('reports').doc(id).delete();
+    this.lastSyncAt = new Date().toISOString();
+    return true;
+  }
+
+  async saveCampusInfo(info: CampusInfoData): Promise<void> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    await this.db.collection('settings').doc('campus_info').set(info);
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async getCampusInfo(): Promise<CampusInfoData | null> {
+    if (!this.db) return null;
+    const doc = await this.db.collection('settings').doc('campus_info').get();
+    if (!doc.exists) return null;
+    return doc.data() as CampusInfoData;
+  }
+
+  async saveCampusEvent(event: CampusEventItem): Promise<void> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    await this.db.collection('events').doc(event.id).set(event);
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async deleteCampusEvent(id: string): Promise<void> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    await this.db.collection('events').doc(id).delete();
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async getCampusEvents(): Promise<CampusEventItem[]> {
+    if (!this.db) return [];
+    const snap = await this.db.collection('events').orderBy('date', 'asc').get();
+    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() } as CampusEventItem));
+  }
+
+  async saveDepartment(dept: Department): Promise<void> {
+    if (!this.db) throw new Error('Firestore is not initialized.');
+    await this.db.collection('departments').doc(dept.id).set(dept);
     this.lastSyncAt = new Date().toISOString();
   }
 

@@ -10,6 +10,9 @@ import {
   Link2,
   Image as ImageIcon,
   Calendar,
+  MessageSquare,
+  KeyRound,
+  Mail,
 } from 'lucide-react';
 import { ControlCenterSectionId } from '../ControlCenterSidebar';
 
@@ -24,6 +27,8 @@ interface OverviewSectionProps {
     unverifiedDirections?: number;
     pendingReports?: number;
     draftsCount?: number;
+    facultyAccounts?: number;
+    missingEmails?: number;
   };
   onNavigate: (section: ControlCenterSectionId) => void;
   onOpenEvents?: () => void;
@@ -141,6 +146,63 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             </div>
             <div className="text-[11px] text-slate-400 font-medium">Registered Rooms</div>
           </div>
+        </div>
+      </div>
+
+      {/* 2b. Three Small Count Cards: New reports, Faculty accounts, Missing emails */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div
+          onClick={() => onNavigate('reports')}
+          className="bg-white border border-slate-200/80 hover:border-rose-400 rounded-xl p-3.5 shadow-xs transition-all duration-200 hover:shadow-md cursor-pointer group flex items-center justify-between"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">New Reports</div>
+              <div className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                {stats.pendingReports ?? 0}
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-rose-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </div>
+
+        <div
+          onClick={() => onNavigate('credentials')}
+          className="bg-white border border-slate-200/80 hover:border-indigo-400 rounded-xl p-3.5 shadow-xs transition-all duration-200 hover:shadow-md cursor-pointer group flex items-center justify-between"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <KeyRound className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Faculty Accounts</div>
+              <div className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                {stats.facultyAccounts ?? 0}
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </div>
+
+        <div
+          onClick={() => onNavigate('credentials')}
+          className="bg-white border border-slate-200/80 hover:border-amber-400 rounded-xl p-3.5 shadow-xs transition-all duration-200 hover:shadow-md cursor-pointer group flex items-center justify-between"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Mail className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Missing Emails</div>
+              <div className="text-lg font-black text-slate-900 tracking-tight leading-tight">
+                {stats.missingEmails ?? 0}
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all shrink-0" />
         </div>
       </div>
 

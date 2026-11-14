@@ -12,6 +12,9 @@ import {
   Calendar,
   Users,
   KeyRound,
+  Flag,
+  History,
+  HelpCircle,
 } from 'lucide-react';
 import { ControlCenterSectionId } from './ControlCenterSidebar';
 import { CAMPUS_GRAPH } from '../../data/campusGraph';
@@ -59,7 +62,10 @@ export const ControlCenterCommandPalette: React.FC<ControlCenterCommandPalettePr
     { id: 'sec_tags', title: 'Tags & Places', subtitle: 'Manage physical waypoints and 3D street view tags', category: 'Campus Data', icon: MapPin, section: 'tags' },
     { id: 'sec_faculty', title: 'Faculty Details', subtitle: 'Manage 277 faculty members, departments, and physical campus destinations', category: 'Campus Data', icon: Users, section: 'faculty' },
     { id: 'sec_credentials', title: 'Faculty Credentials', subtitle: 'Manage faculty login accounts, verified college emails, and temporary passwords', category: 'Campus Data', icon: KeyRound, section: 'credentials' },
+    { id: 'sec_reports', title: 'Reports & Feedback', subtitle: 'Handle student & faculty bug reports, location issues, and user feedback', category: 'Campus Data', icon: Flag, section: 'reports' },
     { id: 'sec_panoramas', title: 'Edit Connections', subtitle: 'Manage 360° panorama images, location tags and navigation arrows', category: 'Campus Data', icon: Camera, section: 'panoramas' },
+    { id: 'sec_activity', title: 'Activity Log', subtitle: 'View audit logs of administrative actions and changes', category: 'Campus Data', icon: History, section: 'activity' },
+    { id: 'sec_help', title: 'Admin Help Guide', subtitle: 'Step-by-step instructions for managing campus data', category: 'Help', icon: HelpCircle, section: 'help' },
     { id: 'cmd_events', title: 'Campus Events & Calendar', subtitle: 'Schedule, add, edit and manage upcoming campus events', category: 'Events', icon: Calendar, section: 'overview', metadata: { openEvents: true } },
     { id: 'sec_publish', title: 'Publish', subtitle: 'Deploy validated updates to production & database backup', category: 'Publish', icon: UploadCloud, section: 'publish' },
   ];

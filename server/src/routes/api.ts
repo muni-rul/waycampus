@@ -1087,16 +1087,111 @@ apiRouter.get('/health', (req: Request, res: Response) => {
 
 // Campus Metadata & Virtual Tour info
 apiRouter.get('/campus/info', (req: Request, res: Response) => {
+  const info = store.getCampusInfo();
   res.json({
-    name: 'Christ College (Autonomous)',
-    location: 'Irinjalakuda North P.O., Thrissur - 680125, Kerala, INDIA',
+    name: info.name,
+    location: info.address || info.location || 'Irinjalakuda North P.O., Thrissur - 680125, Kerala, INDIA',
     gpsCenter: { lat: 10.354794, lng: 76.212791 },
-    phone: '+91 480 2825258',
-    mobile: '+91 7907129338',
-    email: 'office@christcollegeijk.edu.in',
-    website: 'https://christcollegeijk.edu.in/',
-    virtualTourUrl: 'https://christcollegeijk.edu.in/virtual-tour/',
+    phone: info.phone || '+91 480 2825258',
+    mobile: info.mobile || '+91 7907129338',
+    email: info.email || 'office@christcollegeijk.edu.in',
+    website: info.website || 'https://christcollegeijk.edu.in/',
+    virtualTourUrl: info.virtualTourUrl || 'https://christcollegeijk.edu.in/virtual-tour/',
   });
+});
+
+// Update Campus Info (Admin Only - GAP (i))
+apiRouter.put('/admin/campus/info', requireAdminAuth, async (req: Request, res: Response) => {
+  const { name, address, phone, email, website } = req.body || {};
+  if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 150) {
+    return res.status(400).json({ error: 'Valid campus name is required (max 150 chars).' });
+  }
+  if (!address || typeof address !== 'string' || address.trim().length === 0 || address.length > 250) {
+    return res.status(400).json({ error: 'Valid campus address is required (max 250 chars).' });
+  }
+  if (!phone || typeof phone !== 'string' || phone.trim().length === 0 || phone.length > 50) {
+    return res.status(400).json({ error: 'Valid contact phone is required (max 50 chars).' });
+  }
+  if (!email || typeof email !== 'string' || !email.includes('@') || email.length > 100) {
+    return res.status(400).json({ error: 'Valid contact email is required.' });
+  }
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  const updated = await store.updateCampusInfo(
+    {
+      name: name.trim(),
+      address: address.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      website: website ? String(website).trim() : undefined,
+    },
+    adminUser
+  );
+  res.json({ success: true, message: 'Campus information updated successfully.', info: updated });
+});
+
+// Events Calendar Endpoints (GAP (ii))
+apiRouter.get('/events', async (req: Request, res: Response) => {
+  const events = await store.getCampusEvents();
+  res.json({ success: true, events });
+});
+
+apiRouter.post('/admin/events', requireAdminAuth, async (req: Request, res: Response) => {
+  const { id, title, description, date, time, category, location, isOfficialHoliday } = req.body || {};
+  if (!title || typeof title !== 'string' || title.trim().length === 0 || title.length > 150) {
+    return res.status(400).json({ error: 'Event title is required (max 150 characters).' });
+  }
+  if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Valid event date in YYYY-MM-DD format is required.' });
+  }
+  const eventId = id || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  const saved = await store.saveCampusEvent(
+    {
+      id: eventId,
+      title: title.trim(),
+      description: description ? String(description).slice(0, 500).trim() : '',
+      date,
+      time: time ? String(time).slice(0, 50).trim() : 'Full Day',
+      category: category || 'General',
+      location: location ? String(location).slice(0, 100).trim() : undefined,
+      isOfficialHoliday: Boolean(isOfficialHoliday),
+    },
+    adminUser
+  );
+  res.status(201).json({ success: true, event: saved });
+});
+
+apiRouter.delete('/admin/events/:id', requireAdminAuth, async (req: Request, res: Response) => {
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  await store.deleteCampusEvent(req.params.id, adminUser);
+  res.json({ success: true, message: 'Event deleted successfully.' });
+});
+
+// Academic Department Edit (Admin Only - GAP (iii))
+apiRouter.patch('/admin/departments/:id', requireAdminAuth, async (req: Request, res: Response) => {
+  const { headOfDepartment, description, code, email, phone } = req.body || {};
+  const updates: any = {};
+  if (headOfDepartment !== undefined) {
+    updates.headOfDepartment = String(headOfDepartment).slice(0, 100).trim();
+  }
+  if (description !== undefined) {
+    updates.description = String(description).slice(0, 500).trim();
+  }
+  if (code !== undefined) {
+    updates.code = String(code).slice(0, 20).trim();
+  }
+  if (email !== undefined) {
+    updates.email = String(email).slice(0, 100).trim();
+  }
+  if (phone !== undefined) {
+    updates.phone = String(phone).slice(0, 50).trim();
+  }
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  const updated = await store.updateDepartment(req.params.id, updates, adminUser);
+  if (!updated) {
+    return res.status(404).json({ error: 'Department not found' });
+  }
+  res.json({ success: true, department: updated });
 });
 
 // Real GPS to Campus 3D Local Coordinate Converter
@@ -2315,14 +2410,6 @@ apiRouter.post('/publish/sync', requireSuperAdminAuth, async (req: Request, res:
   });
 });
 
-// 17. 1-Click Publish to Render (Superseded by Cloud Firestore)
-apiRouter.post('/publish/deploy', requireSuperAdminAuth, async (req: Request, res: Response) => {
-  return res.status(410).json({
-    success: false,
-    error: 'Render deployment sync is obsolete. Changes write directly to Cloud Firestore without requiring redeployment.',
-  });
-});
-
 // 18. Export Database File (Browser JSON Download - Excludes Password Hashes)
 apiRouter.get('/publish/export-db', requireAdminAuth, (req: Request, res: Response) => {
   try {
@@ -2348,75 +2435,53 @@ apiRouter.get('/publish/export-db', requireAdminAuth, (req: Request, res: Respon
   }
 });
 
-// 19. Import Database JSON Payload (Superseded by Cloud Firestore & migration script)
-apiRouter.post('/publish/import-db', requireSuperAdminAuth, async (req: Request, res: Response) => {
-  return res.status(410).json({
-    success: false,
-    error: 'Direct JSON database import is disabled. Use scripts/migrateToFirestore.ts for initial database population.',
-  });
-  try {
-    const payload = req.body;
-    if (!payload || typeof payload !== 'object') {
-      return res.status(400).json({ error: 'Valid JSON database payload required' });
-    }
-
-    const caller = payload.publishedBy || (req as any).user?.username || 'Database Import';
-
-    const importResult = await store.withWriteLock(() => {
-      if (payload.state && payload.state.buildings && payload.state.graphOverrides) {
-        return store.importPublishedDatabase(payload.state, caller, {
-          expectedPreviousHash: payload.expectedPreviousHash,
-          force: payload.force,
-        });
-      }
-      if (payload.buildings && payload.graphOverrides) {
-        return store.importPublishedDatabase(payload, caller, {
-          expectedPreviousHash: payload.expectedPreviousHash,
-          force: payload.force,
-        });
-      }
-      if (payload.graphOverrides) {
-        store.saveGraphOverrides(payload.graphOverrides, caller);
-      } else if (payload.manualNumbers || payload.customConnections || payload.nodeImageOverrides) {
-        store.saveGraphOverrides(payload, caller);
-      } else {
-        throw new Error('Unrecognized database payload structure.');
-      }
-      store.materializeUploadedPanoramaAssetsToDisk();
-      const published = store.markGraphPublished(caller);
-      const val = store.validateForPublish();
-      return {
-        success: true,
-        conflict: false,
-        message: 'Database state imported, materialized, and persisted successfully.',
-        version: published.version || 1,
-        contentHash: published.contentHash || '',
-        totalNodeCount: val.totalNodeCount,
-        totalConnections: val.totalConnections,
-        totalTags: val.totalTags,
-      };
-    });
-
-    if (importResult.conflict) {
-      return res.status(409).json(importResult);
-    }
-
-    return res.json(importResult);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'Failed to import database' });
-  }
-});
-
 // ─────────────────────────────────────────────────────────────
-// 20. BUG REPORTING & FEEDBACK SYSTEM ENDPOINTS
+// 20. BUG REPORTING & FEEDBACK SYSTEM ENDPOINTS (FIRESTORE PERSISTENT)
 // ─────────────────────────────────────────────────────────────
 
-// In-memory rate limiter: max 10 reports per 15 minutes per IP
+// Whitelist of valid report categories
+const REPORT_CATEGORY_WHITELIST = new Set([
+  'WRONG_LOCATION',
+  'WRONG_DEPARTMENT',
+  'WRONG_ROOM',
+  'WRONG_BLOCK',
+  'WRONG_NAVIGATION',
+  'WRONG_ARROW',
+  'WRONG_DIRECTION',
+  'MISSING_PLACE',
+  'MISSING_ROOM',
+  'INCORRECT_TAG',
+  'INCORRECT_LABEL',
+  'ACCESSIBILITY',
+  'BROKEN_LINK',
+  'FACULTY_INFO',
+  'PANORAMA_PROBLEM',
+  'SEARCH_PROBLEM',
+  'TECHNICAL_PROBLEM',
+  'SUGGESTION',
+  'OTHER',
+  'Wrong Location / Pin',
+  'Wrong Department Mapping',
+  'Wrong Room Number / Code',
+  'Wrong Building / Block',
+  'Wrong Navigation Route / Direction',
+  'Wrong 360° Arrow Direction',
+  'Missing Place / Unmapped Room',
+  'Incorrect Tag or Label in 360°',
+  'Faculty Information Outdated',
+  'Panorama Image Not Loading / Blurry',
+  'Search Not Finding What I Need',
+  'App Glitch or Technical Bug',
+  'Feature Suggestion or Campus Idea',
+  'Other Issue / General Feedback',
+]);
+
+// In-memory rate limiter: max 5 reports per 15 minutes per IP
 const reportRateLimitMap = new Map<string, { count: number; resetTime: number }>();
-function checkReportRateLimit(ip: string): boolean {
+export function checkReportRateLimit(ip: string): boolean {
   const now = Date.now();
   const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxReports = 10;
+  const maxReports = 5;
 
   const record = reportRateLimitMap.get(ip);
   if (!record || now > record.resetTime) {
@@ -2430,21 +2495,27 @@ function checkReportRateLimit(ip: string): boolean {
   return true;
 }
 
-// Input sanitizer to prevent script injection / XSS
+export function resetReportRateLimits(): void {
+  reportRateLimitMap.clear();
+}
+
+// Input sanitizer: strips control characters and trims string
+export function stripControlCharacters(str: any): string {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
 function sanitizeReportString(str: any, maxLen: number = 2000): string {
   if (typeof str !== 'string') return '';
-  return str
-    .replace(/[<>]/g, '')
-    .trim()
-    .slice(0, maxLen);
+  return stripControlCharacters(str).replace(/[<>]/g, '').trim().slice(0, maxLen);
 }
 
 // 20A. Submit User Bug Report / Feedback (Public)
-apiRouter.post('/reports', (req: Request, res: Response) => {
+apiRouter.post('/reports', async (req: Request, res: Response) => {
   const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
   if (!checkReportRateLimit(clientIp)) {
     return res.status(429).json({
-      error: 'Too many report submissions. Please wait a few minutes before submitting another report.',
+      error: 'Too many submissions. Please wait 15 minutes before submitting another report.',
     });
   }
 
@@ -2452,6 +2523,7 @@ apiRouter.post('/reports', (req: Request, res: Response) => {
     issueType,
     category,
     description,
+    message,
     reporterName,
     reporterContact,
     reporterType,
@@ -2471,103 +2543,138 @@ apiRouter.post('/reports', (req: Request, res: Response) => {
     blockId,
     blockName,
     currentURL,
+    page,
     device,
     browser,
     screenSize,
     appVersion,
+    attachment,
+    screenshot,
   } = req.body || {};
 
-  if (!description || typeof description !== 'string' || description.trim().length < 5) {
-    return res.status(400).json({ error: 'A descriptive report of at least 5 characters is required.' });
+  // 1. Message is required, at most 2000 characters, control characters stripped
+  const rawMsg = message !== undefined ? message : description;
+  if (!rawMsg || typeof rawMsg !== 'string') {
+    return res.status(400).json({ error: 'Message is required.' });
+  }
+  const cleanMsg = stripControlCharacters(rawMsg).trim();
+  if (cleanMsg.length === 0) {
+    return res.status(400).json({ error: 'Message cannot be empty.' });
+  }
+  if (cleanMsg.length > 2000) {
+    return res.status(400).json({ error: 'Message exceeds maximum allowed length of 2000 characters.' });
   }
 
-  if (description.length > 2000) {
-    return res.status(400).json({ error: 'Description exceeds maximum allowed length of 2000 characters.' });
+  // 2. Category must be from whitelist
+  const rawCat = category || issueType;
+  const cleanCat = rawCat ? String(rawCat).trim() : '';
+  if (!cleanCat || !REPORT_CATEGORY_WHITELIST.has(cleanCat)) {
+    return res.status(400).json({ error: 'Invalid report category.' });
   }
 
-  const validIssueTypes: CampusReportIssueType[] = [
-    'WRONG_LOCATION',
-    'WRONG_DEPARTMENT',
-    'WRONG_ROOM',
-    'WRONG_BLOCK',
-    'WRONG_NAVIGATION',
-    'WRONG_ARROW',
-    'MISSING_PLACE',
-    'INCORRECT_TAG',
-    'FACULTY_INFO',
-    'PANORAMA_PROBLEM',
-    'SEARCH_PROBLEM',
-    'TECHNICAL_PROBLEM',
-    'SUGGESTION',
-    'OTHER',
-  ];
+  // 3. Document attachment/screenshot size limit: cap under 200 KB, otherwise drop
+  const MAX_DOC_BYTES = 200 * 1024; // 200 KB
+  let cappedAttachment: string | undefined;
+  if (typeof attachment === 'string') {
+    if (Buffer.byteLength(attachment, 'utf8') <= MAX_DOC_BYTES) {
+      cappedAttachment = attachment;
+    }
+  }
+  let cappedScreenshot: string | undefined;
+  if (typeof screenshot === 'string') {
+    if (Buffer.byteLength(screenshot, 'utf8') <= MAX_DOC_BYTES) {
+      cappedScreenshot = screenshot;
+    }
+  }
 
-  const safeType: CampusReportIssueType = validIssueTypes.includes(issueType) ? issueType : 'OTHER';
+  // 4. Truncated user agent
+  const userAgent = (req.headers['user-agent'] || browser || '').toString().slice(0, 150);
 
-  const newReport = store.createReport({
-    issueType: safeType,
-    category: sanitizeReportString(category || safeType.replace(/_/g, ' '), 100),
-    description: sanitizeReportString(description, 2000),
-    reporterName: reporterName ? sanitizeReportString(reporterName, 100) : undefined,
-    reporterContact: reporterContact ? sanitizeReportString(reporterContact, 150) : undefined,
-    reporterType: ['student', 'faculty', 'admin', 'anonymous'].includes(reporterType) ? reporterType : 'anonymous',
-    currentPanoramaId: currentPanoramaId ? sanitizeReportString(currentPanoramaId, 100) : undefined,
-    currentNodeId: currentNodeId ? sanitizeReportString(currentNodeId, 100) : undefined,
-    currentBuildingId: currentBuildingId ? sanitizeReportString(currentBuildingId, 100) : undefined,
-    currentFloorId,
-    currentPlaceId: currentPlaceId ? sanitizeReportString(currentPlaceId, 100) : undefined,
-    currentTagId: currentTagId ? sanitizeReportString(currentTagId, 100) : undefined,
-    selectedDestinationId: selectedDestinationId ? sanitizeReportString(selectedDestinationId, 100) : undefined,
-    routeId: routeId ? sanitizeReportString(routeId, 100) : undefined,
-    routeStepIndex: typeof routeStepIndex === 'number' ? routeStepIndex : undefined,
-    originNodeId: originNodeId ? sanitizeReportString(originNodeId, 100) : undefined,
-    destinationNodeId: destinationNodeId ? sanitizeReportString(destinationNodeId, 100) : undefined,
-    reportedEntityType: reportedEntityType ? sanitizeReportString(reportedEntityType, 100) : undefined,
-    reportedEntityId: reportedEntityId ? sanitizeReportString(reportedEntityId, 100) : undefined,
-    blockId: blockId ? sanitizeReportString(blockId, 100) : undefined,
-    blockName: blockName ? sanitizeReportString(blockName, 150) : undefined,
-    currentURL: currentURL ? sanitizeReportString(currentURL, 300) : undefined,
-    device: device ? sanitizeReportString(device, 100) : undefined,
-    browser: browser ? sanitizeReportString(browser, 100) : undefined,
-    screenSize: screenSize ? sanitizeReportString(screenSize, 50) : undefined,
-    appVersion: appVersion ? sanitizeReportString(appVersion, 50) : undefined,
-  });
+  const safeIssueType = (REPORT_CATEGORY_WHITELIST.has(issueType) ? issueType : 'OTHER') as CampusReportIssueType;
 
-  return res.status(201).json({
-    success: true,
-    message: 'Thanks — your report has been submitted.',
-    report: {
-      id: newReport.id,
-      createdAt: newReport.createdAt,
-      status: newReport.status,
-      priority: newReport.priority,
-      possibleDuplicateOf: newReport.possibleDuplicateOf,
-    },
-  });
+  try {
+    const newReport = await store.createReportAsync({
+      issueType: safeIssueType,
+      category: cleanCat,
+      message: cleanMsg,
+      description: cleanMsg,
+      status: 'NEW',
+      reporterName: reporterName ? sanitizeReportString(reporterName, 100) : undefined,
+      reporterContact: reporterContact ? sanitizeReportString(reporterContact, 150) : undefined,
+      reporterType: ['student', 'faculty', 'admin', 'anonymous'].includes(reporterType) ? reporterType : 'student',
+      nodeId: currentNodeId || currentPanoramaId,
+      page: page || currentURL,
+      currentPanoramaId: currentPanoramaId ? sanitizeReportString(currentPanoramaId, 100) : undefined,
+      currentNodeId: currentNodeId ? sanitizeReportString(currentNodeId, 100) : undefined,
+      currentBuildingId: currentBuildingId ? sanitizeReportString(currentBuildingId, 100) : undefined,
+      currentFloorId,
+      currentPlaceId: currentPlaceId ? sanitizeReportString(currentPlaceId, 100) : undefined,
+      currentTagId: currentTagId ? sanitizeReportString(currentTagId, 100) : undefined,
+      selectedDestinationId: selectedDestinationId ? sanitizeReportString(selectedDestinationId, 100) : undefined,
+      routeId: routeId ? sanitizeReportString(routeId, 100) : undefined,
+      routeStepIndex: typeof routeStepIndex === 'number' ? routeStepIndex : undefined,
+      originNodeId: originNodeId ? sanitizeReportString(originNodeId, 100) : undefined,
+      destinationNodeId: destinationNodeId ? sanitizeReportString(destinationNodeId, 100) : undefined,
+      reportedEntityType: reportedEntityType ? sanitizeReportString(reportedEntityType, 100) : undefined,
+      reportedEntityId: reportedEntityId ? sanitizeReportString(reportedEntityId, 100) : undefined,
+      blockId: blockId ? sanitizeReportString(blockId, 100) : undefined,
+      blockName: blockName ? sanitizeReportString(blockName, 150) : undefined,
+      currentURL: currentURL ? sanitizeReportString(currentURL, 300) : undefined,
+      device: device ? sanitizeReportString(device, 100) : undefined,
+      browser: userAgent,
+      screenSize: screenSize ? sanitizeReportString(screenSize, 50) : undefined,
+      appVersion: appVersion ? sanitizeReportString(appVersion, 50) : undefined,
+      attachment: cappedAttachment,
+      screenshot: cappedScreenshot,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Thanks — your report has been submitted.',
+      reportId: newReport.id,
+      report: {
+        id: newReport.id,
+        createdAt: newReport.createdAt,
+        status: newReport.status,
+        priority: newReport.priority,
+        possibleDuplicateOf: newReport.possibleDuplicateOf,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to process report. Please try again later.' });
+  }
 });
 
-// 20B. Get Reports List (Admin Only)
-apiRouter.get('/admin/reports', requireAdminAuth, (req: Request, res: Response) => {
-  const { status, priority, category, search, buildingId, limit, offset } = req.query;
-  const result = store.getReports({
-    status: status as string | undefined,
-    priority: priority as string | undefined,
-    category: category as string | undefined,
-    search: search as string | undefined,
-    buildingId: buildingId as string | undefined,
-    limit: limit ? parseInt(limit as string, 10) : 100,
-    offset: offset ? parseInt(offset as string, 10) : 0,
-  });
-  res.json({
-    success: true,
-    total: result.total,
-    reports: result.reports,
-  });
+// 20B. Get Reports List (Admin Only - Query Firestore newest first, limit 50, cursor pagination)
+apiRouter.get('/admin/reports', requireAdminAuth, async (req: Request, res: Response) => {
+  const { status, category, search, startDate, endDate, limit, cursor } = req.query;
+  const parsedLimit = Math.min(Math.max(parseInt(String(limit || '50'), 10) || 50, 1), 50);
+
+  try {
+    const result = await store.queryReports({
+      status: status as string | undefined,
+      category: category as string | undefined,
+      search: search as string | undefined,
+      startDate: startDate as string | undefined,
+      endDate: endDate as string | undefined,
+      limit: parsedLimit,
+      cursor: cursor as string | undefined,
+    });
+
+    res.json({
+      success: true,
+      total: result.total,
+      reports: result.reports,
+      nextCursor: result.nextCursor,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve reports' });
+  }
 });
 
 // 20C. Get Report by ID (Admin Only)
-apiRouter.get('/admin/reports/:id', requireAdminAuth, (req: Request, res: Response) => {
-  const report = store.getReportById(req.params.id);
+apiRouter.get('/admin/reports/:id', requireAdminAuth, async (req: Request, res: Response) => {
+  const report = await store.getReportByIdAsync(req.params.id);
   if (!report) {
     return res.status(404).json({ error: 'Report not found' });
   }
@@ -2575,7 +2682,7 @@ apiRouter.get('/admin/reports/:id', requireAdminAuth, (req: Request, res: Respon
 });
 
 // 20D. Update Report Status / Priority / Notes (Admin Only)
-apiRouter.patch('/admin/reports/:id', requireAdminAuth, (req: Request, res: Response) => {
+apiRouter.patch('/admin/reports/:id', requireAdminAuth, async (req: Request, res: Response) => {
   const { status, priority, adminNotes } = req.body;
   const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
 
@@ -2606,7 +2713,7 @@ apiRouter.patch('/admin/reports/:id', requireAdminAuth, (req: Request, res: Resp
     updates.adminNotes = sanitizeReportString(adminNotes, 3000);
   }
 
-  const updated = store.updateReport(req.params.id, updates, adminUser);
+  const updated = await store.updateReportAsync(req.params.id, updates, adminUser);
   if (!updated) {
     return res.status(404).json({ error: 'Report not found' });
   }
@@ -2618,19 +2725,30 @@ apiRouter.patch('/admin/reports/:id', requireAdminAuth, (req: Request, res: Resp
   });
 });
 
-// 20E. Delete Report by ID (Admin Only)
-apiRouter.delete('/admin/reports/:id', requireAdminAuth, (req: Request, res: Response) => {
-  const success = store.deleteReport(req.params.id);
+// 20E. Bulk Update Reports Status (Admin Only)
+apiRouter.post('/admin/reports/bulk-status', requireAdminAuth, async (req: Request, res: Response) => {
+  const { ids, status } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0 || !status) {
+    return res.status(400).json({ error: 'Array of report ids and target status are required.' });
+  }
+  const validStatuses: CampusReportStatus[] = ['NEW', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid report status.' });
+  }
+
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  const count = await store.bulkUpdateReports(ids, status, adminUser);
+  res.json({ success: true, message: `Successfully updated ${count} reports.`, count });
+});
+
+// 20F. Delete Report by ID (Admin Only)
+apiRouter.delete('/admin/reports/:id', requireAdminAuth, async (req: Request, res: Response) => {
+  const adminUser = (req as any).user?.username || (req as any).adminUser?.username || 'Admin';
+  const success = await store.deleteReportAsync(req.params.id, adminUser);
   if (!success) {
     return res.status(404).json({ error: 'Report not found' });
   }
   res.json({ success: true, message: `Report ${req.params.id} deleted successfully.` });
-});
-
-// 20F. Clear All Reports (Admin Only)
-apiRouter.delete('/admin/reports', requireAdminAuth, (req: Request, res: Response) => {
-  const count = store.clearAllReports();
-  res.json({ success: true, message: `Successfully cleared ${count} reports.` });
 });
 
 

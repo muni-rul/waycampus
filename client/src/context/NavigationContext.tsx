@@ -40,6 +40,14 @@ import {
 } from '../services/sessionPersistenceService';
 import OFFICIAL_FACULTY_DATA from '../data/officialFaculty.json';
 import OFFICIAL_DEPARTMENTS_DATA from '../data/officialDepartments.json';
+import { mergeById } from '../../../shared/mergeData';
+import {
+  getSessionTeachers,
+  setSessionTeachers,
+  getSessionDepartments,
+  setSessionDepartments,
+  setSessionCampusInfo,
+} from '../services/sessionDataCache';
 import { setLiveCampusSearchData, getLiveCampusSearchData } from '../services/campusSearchService';
 
 export type LightingTheme = 'DAY' | 'SUNSET' | 'NIGHT' | 'CAMPUS_NEON';
@@ -314,8 +322,16 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   const [floors, setFloors] = useState<Floor[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    const session = getSessionTeachers();
+    if (session && session.length > 0) return session;
+    return OFFICIAL_FACULTY_DATA as unknown as Teacher[];
+  });
+  const [departments, setDepartments] = useState<Department[]>(() => {
+    const session = getSessionDepartments();
+    if (session && session.length > 0) return session;
+    return OFFICIAL_DEPARTMENTS_DATA as unknown as Department[];
+  });
   const [nodes, setNodes] = useState<NavigationNode[]>([]);
   const [edges, setEdges] = useState<NavigationEdge[]>([]);
   const [qrCheckpoints, setQrCheckpoints] = useState<QRCheckpoint[]>([]);
@@ -554,7 +570,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   const refreshData = async () => {
     try {
       setIsLoadingData(true);
-      const [blds, flrs, rms, facs, tchs, depts, nds, edgs, qrs, panos, plcs, graphOverrides] = await Promise.all([
+      const [blds, flrs, rms, facs, tchs, depts, nds, edgs, qrs, panos, plcs, graphOverrides, serverCampusInfo] = await Promise.all([
         ApiService.getBuildings().catch(() => []),
         ApiService.getFloors().catch(() => []),
         ApiService.getRooms().catch(() => []),
@@ -567,6 +583,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         ApiService.getPanoramas().catch(() => []),
         ApiService.getPlaces().catch(() => []),
         ApiService.getGraphOverrides().catch(() => null),
+        ApiService.getCampusInfo().catch(() => null),
       ]);
 
       if (graphOverrides) {
@@ -588,9 +605,24 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         }
       }
 
-      const finalTeachers = Array.isArray(tchs) && tchs.length > 0 ? tchs : (OFFICIAL_FACULTY_DATA as unknown as Teacher[]);
-      const finalDepartments = Array.isArray(depts) && depts.length > 0 ? depts : (OFFICIAL_DEPARTMENTS_DATA as unknown as Department[]);
+      const bundledTeachers = OFFICIAL_FACULTY_DATA as unknown as Teacher[];
+      const bundledDepartments = OFFICIAL_DEPARTMENTS_DATA as unknown as Department[];
+
+      const finalTeachers = mergeById(
+        bundledTeachers,
+        Array.isArray(tchs) && tchs.length > 0 ? (tchs as Teacher[]) : null
+      );
+      const finalDepartments = mergeById(
+        bundledDepartments,
+        Array.isArray(depts) && depts.length > 0 ? (depts as Department[]) : null
+      );
       const finalPlaces = Array.isArray(plcs) ? plcs : [];
+
+      setSessionTeachers(finalTeachers);
+      setSessionDepartments(finalDepartments);
+      if (serverCampusInfo) {
+        setSessionCampusInfo(serverCampusInfo);
+      }
 
       setLiveCampusSearchData({
         teachers: finalTeachers,

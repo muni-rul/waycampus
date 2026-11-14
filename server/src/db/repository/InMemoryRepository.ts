@@ -2,10 +2,13 @@ import {
   IDataRepository,
   RepositoryHealth,
   RealtimeSubscriptionCallbacks,
+  ReportQueryOptions,
+  ReportQueryResult,
 } from './IDataRepository';
 import { DatabaseState } from '../store';
 import {
   Teacher,
+  Department,
   GraphOverrideData,
   CampusReport,
   FacultyAccount,
@@ -13,6 +16,8 @@ import {
   FacultyStatusAuditLog,
   SearchAlias,
   AdminAuditAction,
+  CampusInfoData,
+  CampusEventItem,
 } from '../../../../shared/types';
 import { AdminUser } from '../../middleware/auth';
 
@@ -21,6 +26,8 @@ export class InMemoryRepository implements IDataRepository {
   private connected: boolean = false;
   private subscribers: RealtimeSubscriptionCallbacks[] = [];
   private lastSyncAt?: string;
+  private campusInfo?: CampusInfoData;
+  private campusEvents: CampusEventItem[] = [];
 
   constructor(initialState?: Partial<DatabaseState>) {
     this.state = {
@@ -267,7 +274,132 @@ export class InMemoryRepository implements IDataRepository {
     if (!this.state.reports) {
       this.state.reports = [];
     }
-    this.state.reports.push(JSON.parse(JSON.stringify(report)));
+    const idx = this.state.reports.findIndex((r) => r.id === report.id);
+    if (idx >= 0) {
+      this.state.reports[idx] = JSON.parse(JSON.stringify(report));
+    } else {
+      this.state.reports.unshift(JSON.parse(JSON.stringify(report)));
+    }
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async queryCampusReports(options?: ReportQueryOptions): Promise<ReportQueryResult> {
+    let reports = [...(this.state.reports || [])];
+
+    if (options?.status && options.status !== 'ALL') {
+      reports = reports.filter((r) => r.status === options.status);
+    }
+    if (options?.category && options.category !== 'ALL') {
+      reports = reports.filter((r) => r.category === options.category || r.issueType === options.category);
+    }
+    if (options?.startDate) {
+      reports = reports.filter((r) => r.createdAt >= options.startDate!);
+    }
+    if (options?.endDate) {
+      reports = reports.filter((r) => r.createdAt <= options.endDate!);
+    }
+    if (options?.search && options.search.trim()) {
+      const q = options.search.toLowerCase().trim();
+      reports = reports.filter(
+        (r) =>
+          (r.message && r.message.toLowerCase().includes(q)) ||
+          (r.description && r.description.toLowerCase().includes(q)) ||
+          (r.reporterName && r.reporterName.toLowerCase().includes(q)) ||
+          (r.reporterContact && r.reporterContact.toLowerCase().includes(q)) ||
+          (r.currentNodeId && r.currentNodeId.toLowerCase().includes(q)) ||
+          (r.category && r.category.toLowerCase().includes(q))
+      );
+    }
+
+    // Newest first
+    reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const total = reports.length;
+    let startIndex = 0;
+    if (options?.cursor) {
+      const cursorIndex = reports.findIndex((r) => r.id === options.cursor);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const limit = Math.min(options?.limit || 50, 50);
+    const paginated = reports.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < reports.length && paginated.length > 0
+        ? paginated[paginated.length - 1].id
+        : undefined;
+
+    return {
+      reports: paginated,
+      total,
+      nextCursor,
+    };
+  }
+
+  async getCampusReportById(id: string): Promise<CampusReport | null> {
+    const report = (this.state.reports || []).find((r) => r.id === id);
+    return report ? JSON.parse(JSON.stringify(report)) : null;
+  }
+
+  async updateCampusReport(id: string, updates: Partial<CampusReport>): Promise<CampusReport | null> {
+    if (!this.state.reports) return null;
+    const idx = this.state.reports.findIndex((r) => r.id === id);
+    if (idx === -1) return null;
+    const updated = {
+      ...this.state.reports[idx],
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.reports[idx] = updated;
+    this.lastSyncAt = new Date().toISOString();
+    return JSON.parse(JSON.stringify(updated));
+  }
+
+  async deleteCampusReport(id: string): Promise<boolean> {
+    if (!this.state.reports) return false;
+    const prevLen = this.state.reports.length;
+    this.state.reports = this.state.reports.filter((r) => r.id !== id);
+    this.lastSyncAt = new Date().toISOString();
+    return this.state.reports.length < prevLen;
+  }
+
+  async saveCampusInfo(info: CampusInfoData): Promise<void> {
+    this.campusInfo = JSON.parse(JSON.stringify(info));
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async getCampusInfo(): Promise<CampusInfoData | null> {
+    return this.campusInfo ? JSON.parse(JSON.stringify(this.campusInfo)) : null;
+  }
+
+  async saveCampusEvent(event: CampusEventItem): Promise<void> {
+    const idx = this.campusEvents.findIndex((e) => e.id === event.id);
+    if (idx >= 0) {
+      this.campusEvents[idx] = JSON.parse(JSON.stringify(event));
+    } else {
+      this.campusEvents.push(JSON.parse(JSON.stringify(event)));
+    }
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async deleteCampusEvent(id: string): Promise<void> {
+    this.campusEvents = this.campusEvents.filter((e) => e.id !== id);
+    this.lastSyncAt = new Date().toISOString();
+  }
+
+  async getCampusEvents(): Promise<CampusEventItem[]> {
+    return JSON.parse(JSON.stringify(this.campusEvents));
+  }
+
+  async saveDepartment(dept: Department): Promise<void> {
+    if (!this.state.departments) this.state.departments = [];
+    const idx = this.state.departments.findIndex((d) => d.id === dept.id);
+    if (idx >= 0) {
+      this.state.departments[idx] = JSON.parse(JSON.stringify(dept));
+    } else {
+      this.state.departments.push(JSON.parse(JSON.stringify(dept)));
+    }
     this.lastSyncAt = new Date().toISOString();
   }
 

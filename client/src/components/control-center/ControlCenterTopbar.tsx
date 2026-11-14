@@ -11,8 +11,6 @@ interface ControlCenterTopbarProps {
   onOpenCommandPalette: () => void;
   onOpenEvents?: () => void;
   onRunValidation?: () => void;
-  onToggle3DViewport?: () => void;
-  is3DViewportOpen?: boolean;
   onLogout?: () => void;
   onClose: () => void;
 }

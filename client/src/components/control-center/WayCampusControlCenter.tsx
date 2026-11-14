@@ -12,8 +12,11 @@ import { CampusSection } from './sections/CampusSection';
 import { TagsPlacesSection } from './sections/TagsPlacesSection';
 import { FacultyDetailsSection } from './sections/FacultyDetailsSection';
 import { FacultyCredentialsSection } from './sections/FacultyCredentialsSection';
+import { ReportsSection } from './sections/ReportsSection';
 import { PanoramasSection } from './sections/PanoramasSection';
 import { PublishSection } from './sections/PublishSection';
+import { ActivityLogSection } from './sections/ActivityLogSection';
+import { HelpSection } from './sections/HelpSection';
 
 import {
   REAL_BUILDINGS,
@@ -23,7 +26,6 @@ import {
   getAllCombinedPlaceTags,
 } from './data/campusEntities';
 
-import { PanoramaRouteDebugger } from '../debug/PanoramaRouteDebugger';
 import { EventCalendarModal } from '../ui/EventCalendarModal';
 import { PanoramaNode, Room } from '../../../../shared/types';
 import { ConnectionDirection, PanoramaConnection, CAMPUS_GRAPH } from '../../data/campusGraph';
@@ -54,7 +56,6 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
   const [activeSection, setActiveSection] = useState<ControlCenterSectionId>('overview');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [is3DViewportOpen, setIs3DViewportOpen] = useState(false);
   const [isEventCalendarOpen, setIsEventCalendarOpen] = useState(false);
 
   // Authentication State: Direct Super Admin Access (No Login Required)
@@ -286,11 +287,28 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
       unverifiedDirections: 0,
       pendingReports: 0,
       draftsCount: 0,
+      facultyAccounts: 0,
+      missingEmails: 0,
     };
   });
 
   // Section Badges
-  const [badges] = useState<Partial<Record<ControlCenterSectionId, number | string>>>({});
+  const [badges, setBadges] = useState<Partial<Record<ControlCenterSectionId, number | string>>>({});
+  const [isUsingFirestore, setIsUsingFirestore] = useState<boolean>(false);
+
+  // Detect storage engine (Firestore vs In-Memory)
+  useEffect(() => {
+    ApiService.getPersistenceStatus()
+      .then((res) => {
+        if (res && res.status) {
+          const provider = (res.status.provider || '').toLowerCase();
+          setIsUsingFirestore(provider.includes('firestore') && !!res.status.connected);
+        }
+      })
+      .catch(() => {
+        setIsUsingFirestore(false);
+      });
+  }, []);
 
   // Load live counts
   useEffect(() => {
@@ -300,6 +318,17 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
         const combinedTags = getAllCombinedPlaceTags();
         const placeCount = Array.isArray(places) && places.length > combinedTags.length ? places.length : combinedTags.length;
 
+        // Fetch reports count
+        const reportsRes = await ApiService.getAdminReports({ status: 'NEW', limit: 1 }).catch(() => ({ total: 0 }));
+        const newReportsCount = reportsRes?.total || 0;
+
+        // Fetch faculty accounts count
+        const accountsRes = await ApiService.getAdminFacultyAccounts().catch(() => ({ accounts: [] }));
+        const facultyAccountsCount = accountsRes?.accounts?.length || 0;
+
+        // Compute missing emails
+        const missingEmailsCount = REAL_TEACHERS.filter((t) => !(t.officialEmail || '').trim()).length;
+
         setStats((prev) => ({
           ...prev,
           panoramas: (panoramas && panoramas.length > 0) ? panoramas.length : CAMPUS_GRAPH.length,
@@ -307,6 +336,14 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
           faculty: REAL_TEACHERS.length,
           departments: REAL_DEPARTMENTS.length,
           rooms: REAL_ROOMS.length,
+          pendingReports: newReportsCount,
+          facultyAccounts: facultyAccountsCount,
+          missingEmails: missingEmailsCount,
+        }));
+
+        setBadges((prev) => ({
+          ...prev,
+          reports: newReportsCount > 0 ? newReportsCount : undefined,
         }));
       } catch (err) {
         console.warn('Failed to refresh control center badge counts:', err);
@@ -345,17 +382,29 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
 
   const handleLaunch3DNode = (nodeId: string) => {
     onSelectPanorama(nodeId);
-    setIs3DViewportOpen(true);
+    setActiveSection('panoramas');
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#f0f4f9] text-slate-800 flex flex-col font-sans select-none overflow-hidden animate-in fade-in duration-150">
+      {/* Platform Mode Top Banner */}
+      <div className={`px-4 py-1.5 text-xs font-bold flex items-center justify-center space-x-2 shrink-0 ${
+        isUsingFirestore
+          ? 'bg-emerald-600 text-white shadow-xs'
+          : 'bg-amber-500 text-slate-900 shadow-xs'
+      }`}>
+        <span className={`w-2 h-2 rounded-full ${isUsingFirestore ? 'bg-white animate-pulse' : 'bg-slate-900 animate-ping'}`} />
+        <span>
+          {isUsingFirestore
+            ? 'LIVE DATA: changes are visible to everyone immediately'
+            : 'DEV MODE: data is not saved'}
+        </span>
+      </div>
+
       {/* Topbar */}
       <ControlCenterTopbar
         currentUser={currentUser}
         unsavedCount={hasUnsavedChanges ? 1 : 0}
-        is3DViewportOpen={is3DViewportOpen}
-        onToggle3DViewport={() => setIs3DViewportOpen(!is3DViewportOpen)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenEvents={() => setIsEventCalendarOpen(true)}
         onLogout={handleLogout}
@@ -400,6 +449,10 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
 
           {activeSection === 'credentials' && <FacultyCredentialsSection />}
 
+          {activeSection === 'reports' && (
+            <ReportsSection onSelectPanorama={handleLaunch3DNode} />
+          )}
+
           {activeSection === 'panoramas' && (
             <PanoramasSection
               currentPanoramaId={activePanorama?.id || 'outdoor_001'}
@@ -411,41 +464,11 @@ export const WayCampusControlCenter: React.FC<WayCampusControlCenterProps> = ({
           )}
 
           {activeSection === 'publish' && <PublishSection />}
+
+          {activeSection === 'activity' && <ActivityLogSection />}
+
+          {activeSection === 'help' && <HelpSection />}
         </main>
-
-        {/* Floating / Docked 3D Studio & Street View Viewport (Disabled when in Edit Connections) */}
-        {is3DViewportOpen && activeSection !== 'panoramas' && activePanorama && (
-          <div className="w-[480px] xl:w-[600px] border-l border-slate-200 bg-white flex flex-col shadow-2xl relative z-30 animate-in slide-in-from-right duration-200">
-            <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-xs font-bold text-slate-900">
-                <Eye className="w-4 h-4 text-[#1a56db]" />
-                <span>3D Viewport: Node #{activePanorama.id}</span>
-              </div>
-              <button
-                onClick={() => setIs3DViewportOpen(false)}
-                className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-lg transition"
-                title="Close 3D Viewport"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 relative overflow-hidden">
-              <PanoramaRouteDebugger
-                currentPanorama={activePanorama}
-                onSelectPanorama={(id) => onSelectPanorama(id)}
-                onClose={() => setIs3DViewportOpen(false)}
-                cameraYaw={cameraYaw}
-                cameraPitch={cameraPitch}
-                onSetCameraOrientation={(yaw, pitch) => {
-                  if (onSetCameraOrientation) {
-                    onSetCameraOrientation(yaw, pitch ?? 0);
-                  }
-                }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Ctrl+K Quick Command Palette */}

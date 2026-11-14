@@ -33,6 +33,7 @@ import {
 } from '../../../shared/academicData';
 import OFFICIAL_FACULTY_DATA from '../data/officialFaculty.json';
 import OFFICIAL_DEPARTMENTS_DATA from '../data/officialDepartments.json';
+import { getSessionTeachers, getSessionDepartments } from './sessionDataCache';
 import { findNavigationRoute } from './campusPathfinder';
 
 // ─────────────────────────────────────────────────────────────
@@ -494,14 +495,21 @@ export class CampusSearchEngine {
     this.blockIndex.clear();
 
     const seenIds = new Set<string>();
+    const sessionTeachers = !this.liveTeachers ? getSessionTeachers() : null;
+    const sessionDepartments = !this.liveDepartments ? getSessionDepartments() : null;
+
     const departmentsSource: any[] =
       this.liveDepartments && this.liveDepartments.length > 0
         ? this.liveDepartments
-        : (OFFICIAL_DEPARTMENTS_DATA as any[]);
+        : (sessionDepartments && sessionDepartments.length > 0
+          ? sessionDepartments
+          : (OFFICIAL_DEPARTMENTS_DATA as any[]));
     const facultySource: any[] =
       this.liveTeachers && this.liveTeachers.length > 0
         ? this.liveTeachers
-        : (OFFICIAL_FACULTY_DATA as any[]);
+        : (sessionTeachers && sessionTeachers.length > 0
+          ? sessionTeachers
+          : (OFFICIAL_FACULTY_DATA as any[]));
     const placesSource: any[] = this.livePlaces || [];
 
     // Compute active department names and obsolete (renamed) department names

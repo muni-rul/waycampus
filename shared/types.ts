@@ -831,6 +831,7 @@ export interface CampusReport {
   issueType: CampusReportIssueType;
   category: string;
   description: string;
+  message?: string;
   status: CampusReportStatus;
   priority: CampusReportPriority;
   reporterName?: string;
@@ -838,6 +839,10 @@ export interface CampusReport {
   reporterType?: 'student' | 'faculty' | 'admin' | 'anonymous';
 
   // Automatic Technical Context
+  nodeId?: string;
+  page?: string;
+  screenshot?: string;
+  attachment?: string;
   currentPanoramaId?: string;
   currentNodeId?: string;
   currentBuildingId?: string;
@@ -1014,6 +1019,32 @@ export interface SystemValidationReport {
     scRouteProtected: boolean;
   };
   checks: SystemValidationCheckItem[];
+}
+
+export interface CampusInfoData {
+  name: string;
+  collegeName?: string;
+  address: string;
+  location?: string;
+  phone: string;
+  mobile?: string;
+  email: string;
+  website?: string;
+  virtualTourUrl?: string;
+}
+
+export interface CampusEventItem {
+  id: string;
+  title: string;
+  description: string;
+  date: string; // YYYY-MM-DD
+  time: string; // e.g. "Full Day" or "10:00 AM - 01:00 PM"
+  venue?: string;
+  venueNodeId?: string;
+  location?: string;
+  category?: 'Academic' | 'Holiday' | 'Exam' | 'Sports' | 'Cultural' | 'Seminar' | 'General' | 'Leave';
+  isOfficialHoliday?: boolean;
+  addedByAdmin?: boolean;
 }
 
 

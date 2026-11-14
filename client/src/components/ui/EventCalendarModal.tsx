@@ -10,20 +10,11 @@ import {
   Plus,
   Trash2,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 import { useNavigation } from '../../context/NavigationContext';
-
-export interface CampusEventItem {
-  id: string;
-  title: string;
-  description: string;
-  date: string; // YYYY-MM-DD
-  time: string; // e.g. "Full Day" or "10:00 AM - 01:00 PM"
-  venue: string; // e.g. "College Holiday" or "St. Joseph's Auditorium"
-  venueNodeId: string; // e.g. "outdoor_028" or ""
-  category: 'Holiday' | 'Leave' | 'Cultural' | 'Academic' | 'Sports' | 'Seminar' | 'General';
-  addedByAdmin?: boolean;
-}
+import { ApiService } from '../../services/api';
+import { CampusEventItem } from '../../../../shared/types';
 
 // Official 2026 Academic & Kerala Public Holidays for Christ College (Autonomous) Irinjalakuda
 // No mock or sample events are included. Any future events will be scheduled by the Admin.
@@ -333,6 +324,8 @@ interface EventCalendarModalProps {
 
 export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, onClose, isAdmin = false }) => {
   const { setActivePanoramaId, setActiveTab } = useNavigation();
+  const [eventToDelete, setEventToDelete] = useState<CampusEventItem | null>(null);
+  const [isDeletingEvent, setIsDeletingEvent] = useState(false);
 
   // Load events from persistent storage; purge older versions with mock events
   const [events, setEvents] = useState<CampusEventItem[]>(() => {
@@ -362,10 +355,17 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
     }
   };
 
-  // Sync events in real-time across tabs / modal openings
+  // Sync events in real-time across tabs / modal openings and from API
   useEffect(() => {
-    const reload = () => {
+    const reload = async () => {
       try {
+        const apiRes = await ApiService.getEvents().catch(() => ({ success: false, events: [] }));
+        if (apiRes && apiRes.success && Array.isArray(apiRes.events) && apiRes.events.length > 0) {
+          setEvents(apiRes.events);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(apiRes.events));
+          return;
+        }
+
         localStorage.removeItem('waycampus_events_v1');
         localStorage.removeItem('waycampus_events_v2');
         const saved = localStorage.getItem(STORAGE_KEY);
@@ -379,6 +379,7 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
         setEvents(DEFAULT_EVENTS);
       } catch {
         // quiet fallback
+        setEvents(DEFAULT_EVENTS);
       }
     };
     if (isOpen) {
@@ -502,6 +503,11 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
     };
 
     saveEvents([...events, newEvt]);
+    if (isAdmin) {
+      ApiService.saveEvent(newEvt).catch((err) => {
+        console.warn('Failed to save event to API:', err);
+      });
+    }
     setShowAddForm(false);
     setNewTitle('');
     setNewDate('');
@@ -509,8 +515,23 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
     setNewDescription('');
   };
 
-  const handleDeleteEvent = (id: string) => {
-    saveEvents(events.filter((e) => e.id !== id));
+  const handleConfirmDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    const targetId = eventToDelete.id;
+    setIsDeletingEvent(true);
+    try {
+      if (isAdmin) {
+        await ApiService.deleteEvent(targetId);
+      }
+      saveEvents(events.filter((e) => e.id !== targetId));
+      setEventToDelete(null);
+    } catch (err) {
+      console.warn('Failed to delete event from API:', err);
+      saveEvents(events.filter((e) => e.id !== targetId));
+      setEventToDelete(null);
+    } finally {
+      setIsDeletingEvent(false);
+    }
   };
 
   const handleGoToVenue360 = (nodeId: string) => {
@@ -869,8 +890,8 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
 
                     {isAdmin && (
                       <button
-                        onClick={() => handleDeleteEvent(evt.id)}
-                        className="text-slate-300 hover:text-rose-500 transition-colors p-1 rounded-lg"
+                        onClick={() => setEventToDelete(evt)}
+                        className="text-slate-300 hover:text-rose-500 transition-colors p-1 rounded-lg cursor-pointer"
                         title="Remove event"
                       >
                         <Trash2 size={14} />
@@ -887,7 +908,7 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
                       </div>
 
                       <button
-                        onClick={() => handleGoToVenue360(evt.venueNodeId)}
+                        onClick={() => evt.venueNodeId && handleGoToVenue360(evt.venueNodeId)}
                         className="px-3 py-1.5 bg-[#2563eb] hover:bg-blue-700 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95 flex-shrink-0"
                       >
                         <Compass size={13} />
@@ -913,6 +934,45 @@ export const EventCalendarModal: React.FC<EventCalendarModalProps> = ({ isOpen, 
           )}
         </div>
       </div>
+
+      {/* Delete Event Confirmation Modal */}
+      {eventToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-md p-6 bg-white border border-rose-200 rounded-3xl shadow-2xl text-slate-800 space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-600">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Confirm Event Deletion</h3>
+                <p className="text-xs text-slate-500">Destructive removal</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1 text-slate-700">
+              <p>Are you sure you want to permanently delete this event?</p>
+              <p className="font-bold text-slate-900">&ldquo;{eventToDelete.title}&rdquo;</p>
+              <p className="text-[11px] text-slate-500">Date: {eventToDelete.date} • Venue: {eventToDelete.venue}</p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setEventToDelete(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteEvent}
+                disabled={isDeletingEvent}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition cursor-pointer flex items-center space-x-1.5"
+              >
+                {isDeletingEvent ? <span>Deleting...</span> : <span>Confirm Delete</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

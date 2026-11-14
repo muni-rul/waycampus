@@ -25,6 +25,8 @@ import {
   SearchAlias,
   AdminAuditAction,
   DataSnapshot,
+  CampusInfoData,
+  CampusEventItem,
 } from '../../../../shared/types';
 import { AdminUser } from '../../middleware/auth';
 import { DatabaseState } from '../store';
@@ -46,6 +48,22 @@ export interface RealtimeSubscriptionCallbacks {
   onGraphOverridesChange?: (overrides: GraphOverrideData) => void;
   onCampusContentChange?: (content: Partial<DatabaseState>) => void;
   onTeacherChange?: (teacher: Teacher) => void;
+}
+
+export interface ReportQueryOptions {
+  status?: string;
+  category?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ReportQueryResult {
+  reports: CampusReport[];
+  total: number;
+  nextCursor?: string;
 }
 
 export interface IDataRepository {
@@ -97,6 +115,18 @@ export interface IDataRepository {
   saveGraphOverrides(overrides: GraphOverrideData): Promise<void>;
   saveSearchAliases(aliases: SearchAlias[]): Promise<void>;
   saveCampusReport(report: CampusReport): Promise<void>;
+  queryCampusReports(options?: ReportQueryOptions): Promise<ReportQueryResult>;
+  getCampusReportById(id: string): Promise<CampusReport | null>;
+  updateCampusReport(id: string, updates: Partial<CampusReport>): Promise<CampusReport | null>;
+  deleteCampusReport(id: string): Promise<boolean>;
+
+  // Campus Info & Events & Departments
+  saveCampusInfo(info: CampusInfoData): Promise<void>;
+  getCampusInfo(): Promise<CampusInfoData | null>;
+  saveCampusEvent(event: CampusEventItem): Promise<void>;
+  deleteCampusEvent(id: string): Promise<void>;
+  getCampusEvents(): Promise<CampusEventItem[]>;
+  saveDepartment(dept: Department): Promise<void>;
 
   // Granular Admin operations
   saveAdminUser(user: AdminUser): Promise<void>;
